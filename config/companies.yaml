@@ -5,16 +5,14 @@
 companies:
   natures_storehouse:
     display_name: "Nature's Storehouse"
-    pg_schema: "natures_storehouse"          # Postgres schema for all QB data
-    qb_company_file: ""                      # Leave blank = use whatever QB has open
-    # QB Enterprise runs on Windows 24/7; QBWC handles the file path
+    pg_schema: "natures_storehouse"
+    qb_company_file: ""
     qwc_app_name: "YC QB Connector - Nature's"
-    qwc_app_url: "https://your-server.example.com/qbwc/"
-    qwc_app_support_url: "https://your-server.example.com/"
+    qwc_app_url: "https://yc-qb-web-connector.vercel.app/qbwc/"
+    qwc_app_support_url: "https://yc-qb-web-connector.vercel.app/"
     sync_interval_minutes: 60
-    max_returned: 100                        # Per-company override (or remove to use global)
+    max_returned: 100
     enabled_entities:
-      # Reference data (synced first)
       - accounts
       - classes
       - sales_tax_codes
@@ -25,8 +23,9 @@ companies:
       - vendors
       - employees
       - items
-      # Transactions
+      - assembly_bom
       - purchase_orders
+      - item_receipts
       - bills
       - bill_payments
       - vendor_credits
@@ -46,12 +45,12 @@ companies:
       - time_tracking
 
   adk_fragrance:
-    display_name: "Adirondack Fragrance Farm"
-    pg_schema: "adk_fragrance"               # Postgres schema for all QB data
+    display_name: "Sandy Maine Inc (Adirondack Fragrance Farm)"
+    pg_schema: "adk_fragrance"
     qb_company_file: ""
     qwc_app_name: "YC QB Connector - ADK"
-    qwc_app_url: "https://your-server.example.com/qbwc/"
-    qwc_app_support_url: "https://your-server.example.com/"
+    qwc_app_url: "https://yc-qb-web-connector.vercel.app/qbwc/"
+    qwc_app_support_url: "https://yc-qb-web-connector.vercel.app/"
     sync_interval_minutes: 60
     max_returned: 100
     enabled_entities:
@@ -65,7 +64,132 @@ companies:
       - vendors
       - employees
       - items
+      - assembly_bom
       - purchase_orders
+      - item_receipts
+      - bills
+      - bill_payments
+      - vendor_credits
+      - estimates
+      - sales_orders
+      - invoices
+      - sales_receipts
+      - credit_memos
+      - receive_payments
+      - deposits
+      - checks
+      - credit_card_charges
+      - credit_card_credits
+      - journal_entries
+      - transfers
+      - inventory_adjustments
+      - time_tracking
+
+  yc_works:
+    display_name: "YC Works LLC"
+    pg_schema: "yc_works"
+    qb_company_file: ""
+    qwc_app_name: "YC QB Connector - YC Works"
+    qwc_app_url: "https://yc-qb-web-connector.vercel.app/qbwc/"
+    qwc_app_support_url: "https://yc-qb-web-connector.vercel.app/"
+    sync_interval_minutes: 60
+    max_returned: 100
+    enabled_entities:
+      - accounts
+      - classes
+      - sales_tax_codes
+      - payment_methods
+      - ship_methods
+      - terms
+      - customers
+      - vendors
+      - employees
+      - items
+      - assembly_bom
+      - purchase_orders
+      - item_receipts
+      - bills
+      - bill_payments
+      - vendor_credits
+      - estimates
+      - sales_orders
+      - invoices
+      - sales_receipts
+      - credit_memos
+      - receive_payments
+      - deposits
+      - checks
+      - credit_card_charges
+      - credit_card_credits
+      - journal_entries
+      - transfers
+      - inventory_adjustments
+      - time_tracking
+
+  maine_and_maine:
+    display_name: "Maine & Maine, LLC"
+    pg_schema: "maine_and_maine"
+    qb_company_file: ""
+    qwc_app_name: "YC QB Connector - Maine & Maine"
+    qwc_app_url: "https://yc-qb-web-connector.vercel.app/qbwc/"
+    qwc_app_support_url: "https://yc-qb-web-connector.vercel.app/"
+    sync_interval_minutes: 60
+    max_returned: 100
+    enabled_entities:
+      - accounts
+      - classes
+      - sales_tax_codes
+      - payment_methods
+      - ship_methods
+      - terms
+      - customers
+      - vendors
+      - employees
+      - items
+      - assembly_bom
+      - purchase_orders
+      - item_receipts
+      - bills
+      - bill_payments
+      - vendor_credits
+      - estimates
+      - sales_orders
+      - invoices
+      - sales_receipts
+      - credit_memos
+      - receive_payments
+      - deposits
+      - checks
+      - credit_card_charges
+      - credit_card_credits
+      - journal_entries
+      - transfers
+      - inventory_adjustments
+      - time_tracking
+
+  yc_consulting:
+    display_name: "YC Consulting"
+    pg_schema: "yc_consulting"
+    qb_company_file: ""
+    qwc_app_name: "YC QB Connector - YC Consulting"
+    qwc_app_url: "https://yc-qb-web-connector.vercel.app/qbwc/"
+    qwc_app_support_url: "https://yc-qb-web-connector.vercel.app/"
+    sync_interval_minutes: 60
+    max_returned: 100
+    enabled_entities:
+      - accounts
+      - classes
+      - sales_tax_codes
+      - payment_methods
+      - ship_methods
+      - terms
+      - customers
+      - vendors
+      - employees
+      - items
+      - assembly_bom
+      - purchase_orders
+      - item_receipts
       - bills
       - bill_payments
       - vendor_credits

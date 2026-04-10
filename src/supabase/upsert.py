@@ -10,7 +10,7 @@ Shared metadata (sync state) lives in qb_meta schema.
 """
 from __future__ import annotations
 
-import asyncio
+import time
 from datetime import datetime, timezone
 from typing import Any
 
@@ -34,6 +34,7 @@ ENTITY_TABLE_MAP: dict[str, tuple[str, str, bool, str | None]] = {
     "vendors":           ("vendors",            "qb_list_id", False, None),
     "employees":         ("employees",          "qb_list_id", False, None),
     "items":             ("items",              "qb_list_id", False, None),
+    "assembly_bom":      ("items",              "qb_list_id", False, None),
     "sales_tax_codes":   ("sales_tax_codes",    "qb_list_id", False, None),
     "payment_methods":   ("payment_methods",    "qb_list_id", False, None),
     "ship_methods":      ("ship_methods",       "qb_list_id", False, None),
@@ -53,12 +54,16 @@ ENTITY_TABLE_MAP: dict[str, tuple[str, str, bool, str | None]] = {
     "journal_entries":   ("journal_entries",    "qb_txn_id",  True,  "journal_entry_lines"),
     "deposits":          ("deposits",           "qb_txn_id",  True,  "deposit_lines"),
     "inventory_adjustments": ("inventory_adjustments", "qb_txn_id", True, "inventory_adjustment_lines"),
+    "item_receipts":     ("item_receipts",      "qb_txn_id",  True,  "item_receipt_lines"),
     # Transactions without lines
     "bill_payments":     ("bill_payments",      "qb_txn_id",  False, None),
     "receive_payments":  ("receive_payments",   "qb_txn_id",  False, None),
     "transfers":         ("transfers",          "qb_txn_id",  False, None),
     "time_tracking":     ("time_tracking",      "qb_txn_id",  False, None),
 }
+
+# Assembly bill of materials table name
+BOM_TABLE = "assembly_bom_lines"
 
 
 class SupabaseUpserter:
@@ -70,7 +75,7 @@ class SupabaseUpserter:
     def __init__(self, client: Client) -> None:
         self._client = client
 
-    async def upsert(
+    def upsert(
         self,
         pg_schema: str,
         entity_type: str,
@@ -118,7 +123,7 @@ class SupabaseUpserter:
             for h in headers:
                 h["synced_at"] = now
 
-            headers_upserted = await self._upsert_batch(
+            headers_upserted = self._upsert_batch(
                 schema=pg_schema,
                 table=table_name,
                 records=headers,
@@ -126,7 +131,7 @@ class SupabaseUpserter:
             )
 
             if all_lines and lines_table:
-                await self._upsert_batch(
+                self._upsert_batch(
                     schema=pg_schema,
                     table=lines_table,
                     records=all_lines,
@@ -139,14 +144,28 @@ class SupabaseUpserter:
             for r in records:
                 r["synced_at"] = now
 
-            return await self._upsert_batch(
+            return self._upsert_batch(
                 schema=pg_schema,
                 table=table_name,
                 records=records,
                 conflict_cols=[pk_col],
             )
 
-    async def _upsert_batch(
+    def upsert_bom_lines(self, pg_schema: str, bom_lines: list[dict]) -> int:
+        """Upsert assembly bill of materials lines."""
+        if not bom_lines:
+            return 0
+        now = datetime.now(timezone.utc).isoformat()
+        for line in bom_lines:
+            line["synced_at"] = now
+        return self._upsert_batch(
+            schema=pg_schema,
+            table=BOM_TABLE,
+            records=bom_lines,
+            conflict_cols=["assembly_list_id", "line_seq_no"],
+        )
+
+    def _upsert_batch(
         self,
         schema: str,
         table: str,
@@ -190,7 +209,7 @@ class SupabaseUpserter:
                     error=str(e),
                 )
                 # One retry after a short pause
-                await asyncio.sleep(2)
+                time.sleep(2)
                 try:
                     result = (
                         self._client.schema(schema)

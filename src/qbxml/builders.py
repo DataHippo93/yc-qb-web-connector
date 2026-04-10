@@ -71,9 +71,13 @@ def build_generic_query(
     # Incremental filter
     if from_modified_date and not iterator_continue:
         # Don't add filter on Continue — must match original request
-        date_filter = SubElement(rq, "ModifiedDateRangeFilter")
-        from_el = SubElement(date_filter, "FromModifiedDate")
-        from_el.text = from_modified_date
+        if iterator_start:
+            # Iterator-capable queries use ModifiedDateRangeFilter wrapper
+            date_filter = SubElement(rq, "ModifiedDateRangeFilter")
+            SubElement(date_filter, "FromModifiedDate").text = from_modified_date
+        else:
+            # Simple list queries use direct FromModifiedDate element
+            SubElement(rq, "FromModifiedDate").text = from_modified_date
 
     return _build_qbxml_envelope(rq)
 
@@ -192,30 +196,13 @@ def build_account_query(
     iterator_continue: bool = False,
     iterator_id: str | None = None,
 ) -> str:
+    # AccountQueryRq does NOT support iterator in QB Desktop
     attrs = {"requestID": request_id}
-    if iterator_start:
-        attrs["iterator"] = "Start"
-    elif iterator_continue and iterator_id:
-        attrs["iterator"] = "Continue"
-        attrs["iteratorID"] = iterator_id
 
     rq = Element("AccountQueryRq", **attrs)
-    SubElement(rq, "MaxReturned").text = str(max_returned)
 
-    if from_modified_date and not iterator_continue:
-        df = SubElement(rq, "ModifiedDateRangeFilter")
-        SubElement(df, "FromModifiedDate").text = from_modified_date
-
-    for field in [
-        "ListID", "TimeCreated", "TimeModified", "EditSequence",
-        "Name", "FullName", "IsActive", "ParentRef", "Sublevel",
-        "AccountType", "SpecialAccountType", "AccountNumber",
-        "BankNumber", "LastCheckNumber",
-        "Desc", "Balance", "TotalBalance",
-        "TaxLineInfoRet", "CashFlowClassification",
-        "CurrencyRef", "OpenBalance", "OpenBalanceDate",
-    ]:
-        SubElement(rq, "IncludeRetElement").text = field
+    if from_modified_date:
+        SubElement(rq, "FromModifiedDate").text = from_modified_date
 
     return _build_qbxml_envelope(rq)
 
@@ -288,6 +275,61 @@ def build_journal_entry_query(
     return _build_qbxml_envelope(rq)
 
 
+def build_assembly_bom_query(
+    request_id: str = "1",
+    from_modified_date: str | None = None,
+    max_returned: int = 100,
+    iterator_start: bool = False,
+    iterator_continue: bool = False,
+    iterator_id: str | None = None,
+) -> str:
+    """Build ItemInventoryAssemblyQueryRq — returns assemblies with BOM line items."""
+    attrs = {"requestID": request_id}
+    if iterator_start:
+        attrs["iterator"] = "Start"
+    elif iterator_continue and iterator_id:
+        attrs["iterator"] = "Continue"
+        attrs["iteratorID"] = iterator_id
+
+    rq = Element("ItemInventoryAssemblyQueryRq", **attrs)
+    SubElement(rq, "MaxReturned").text = str(max_returned)
+
+    if from_modified_date and not iterator_continue:
+        df = SubElement(rq, "ModifiedDateRangeFilter")
+        SubElement(df, "FromModifiedDate").text = from_modified_date
+
+    return _build_qbxml_envelope(rq)
+
+
+def build_item_receipt_query(
+    request_id: str = "1",
+    from_modified_date: str | None = None,
+    max_returned: int = 100,
+    iterator_start: bool = False,
+    iterator_continue: bool = False,
+    iterator_id: str | None = None,
+) -> str:
+    """Build ItemReceiptQueryRq — includes line items for lot-level receiving data."""
+    attrs = {"requestID": request_id}
+    if iterator_start:
+        attrs["iterator"] = "Start"
+    elif iterator_continue and iterator_id:
+        attrs["iterator"] = "Continue"
+        attrs["iteratorID"] = iterator_id
+
+    rq = Element("ItemReceiptQueryRq", **attrs)
+    SubElement(rq, "MaxReturned").text = str(max_returned)
+
+    if from_modified_date and not iterator_continue:
+        df = SubElement(rq, "ModifiedDateRangeFilter")
+        SubElement(df, "FromModifiedDate").text = from_modified_date
+
+    # Include line items to get per-item receiving detail
+    SubElement(rq, "IncludeLineItems").text = "true"
+
+    return _build_qbxml_envelope(rq)
+
+
 def build_company_query(request_id: str = "1") -> str:
     """Retrieve company info (no filter needed)."""
     rq = Element("CompanyQueryRq", requestID=request_id)
@@ -313,7 +355,9 @@ QUERY_BUILDERS = {
     "customers": build_customer_query,
     "vendors": build_vendor_query,
     "items": build_item_query,
+    "assembly_bom": build_assembly_bom_query,
     "invoices": build_invoice_query,
+    "item_receipts": build_item_receipt_query,
     "journal_entries": build_journal_entry_query,
 }
 

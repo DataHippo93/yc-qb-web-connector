@@ -30,6 +30,7 @@ class ParsedResponse:
         status_code: int,
         status_message: str,
         request_id: str | None,
+        bom_lines: list[dict[str, Any]] | None = None,
     ) -> None:
         self.entity_type = entity_type
         self.records = records
@@ -38,6 +39,7 @@ class ParsedResponse:
         self.status_code = status_code
         self.status_message = status_message
         self.request_id = request_id
+        self.bom_lines = bom_lines or []
 
     @property
     def is_success(self) -> bool:
@@ -335,6 +337,46 @@ def parse_bill(el: etree._Element) -> tuple[dict, list[dict]]:
     return header, lines
 
 
+def parse_item_receipt(el: etree._Element) -> tuple[dict, list[dict]]:
+    """Parse ItemReceiptRet — receiving transaction with line items."""
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "vendor_list_id": _ref(el, "VendorRef", "ListID"),
+        "vendor_name": _ref(el, "VendorRef"),
+        "ap_account": _ref(el, "APAccountRef"),
+        "ref_number": _text(el, "RefNumber"),
+        "memo": _text(el, "Memo"),
+        "total_amount": _amount(el, "TotalAmount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    # Parse item receipt line items
+    lines = []
+    seq = 0
+    for line_tag in ["ItemReceiptLineRet", "ItemLineRet"]:
+        for line_el in el.findall(line_tag):
+            seq += 1
+            line = {
+                "txn_id": txn_id,
+                "line_seq_no": seq,
+                "item_name": _ref(line_el, "ItemRef"),
+                "item_list_id": _ref(line_el, "ItemRef", "ListID"),
+                "description": _text(line_el, "Desc"),
+                "quantity": _amount(line_el, "Quantity"),
+                "unit_price": _amount(line_el, "Cost") or _amount(line_el, "UnitPrice"),
+                "amount": _amount(line_el, "Amount"),
+                "lot_number": _text(line_el, "LotNumber"),
+                "expiration_date": _text(line_el, "ExpirationDateForLot"),
+                "class_name": _ref(line_el, "ClassRef"),
+            }
+            lines.append(line)
+    return header, lines
+
+
 def parse_journal_entry(el: etree._Element) -> tuple[dict, list[dict]]:
     txn_id = _text(el, "TxnID") or ""
     header = {
@@ -353,7 +395,7 @@ def parse_journal_entry(el: etree._Element) -> tuple[dict, list[dict]]:
 
 def parse_item(el: etree._Element, item_type: str) -> dict:
     """Generic item parser — handles all item types."""
-    return {
+    item = {
         "qb_list_id": _text(el, "ListID"),
         "name": _text(el, "Name"),
         "full_name": _text(el, "FullName"),
@@ -382,6 +424,23 @@ def parse_item(el: etree._Element, item_type: str) -> dict:
         "time_modified": _text(el, "TimeModified"),
         "edit_sequence": _text(el, "EditSequence"),
     }
+    return item
+
+
+def _parse_assembly_bom_lines(el: etree._Element, assembly_list_id: str) -> list[dict]:
+    """Extract bill of materials lines from an ItemInventoryAssemblyRet."""
+    lines = []
+    seq = 0
+    for line_el in el.findall("ItemInventoryAssemblyLine"):
+        seq += 1
+        lines.append({
+            "assembly_list_id": assembly_list_id,
+            "line_seq_no": seq,
+            "item_list_id": _ref(line_el, "ItemInventoryRef", "ListID"),
+            "item_name": _ref(line_el, "ItemInventoryRef"),
+            "quantity": _amount(line_el, "Quantity"),
+        })
+    return lines
 
 
 # ============================================================================
@@ -412,6 +471,7 @@ RESPONSE_PARSERS: dict[str, Any] = {
     "InvoiceQueryRs": ("InvoiceRet", parse_invoice, True),
     "SalesReceiptQueryRs": ("SalesReceiptRet", parse_sales_receipt, True),
     "BillQueryRs": ("BillRet", parse_bill, True),
+    "ItemReceiptQueryRs": ("ItemReceiptRet", parse_item_receipt, True),
     "JournalEntryQueryRs": ("JournalEntryRet", parse_journal_entry, True),
 }
 
@@ -486,10 +546,21 @@ def parse_qbxml_response(xml_string: str, entity_type: str) -> ParsedResponse:
     records = []
 
     # Special handling for ItemQueryRs — mixed item types
+    bom_lines: list[dict] = []
     if rs_tag == "ItemQueryRs" or entity_type == "items":
         for item_tag, item_type in ITEM_RET_TYPES.items():
             for item_el in rs_el.findall(item_tag):
-                records.append(parse_item(item_el, item_type))
+                item_dict = parse_item(item_el, item_type)
+                records.append(item_dict)
+                if item_tag == "ItemInventoryAssemblyRet":
+                    bom_lines.extend(_parse_assembly_bom_lines(item_el, item_dict["qb_list_id"]))
+
+    # Special handling for ItemInventoryAssemblyQueryRs — dedicated assembly+BOM query
+    elif rs_tag == "ItemInventoryAssemblyQueryRs" or entity_type == "assembly_bom":
+        for item_el in rs_el.findall("ItemInventoryAssemblyRet"):
+            item_dict = parse_item(item_el, "InventoryAssembly")
+            records.append(item_dict)
+            bom_lines.extend(_parse_assembly_bom_lines(item_el, item_dict["qb_list_id"]))
 
     # Specific parsers
     elif rs_tag in RESPONSE_PARSERS:
@@ -522,6 +593,7 @@ def parse_qbxml_response(xml_string: str, entity_type: str) -> ParsedResponse:
         status_code=status_code,
         status_message=status_message,
         request_id=request_id,
+        bom_lines=bom_lines,
     )
 
 
