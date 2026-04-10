@@ -283,7 +283,10 @@ def build_assembly_bom_query(
     iterator_continue: bool = False,
     iterator_id: str | None = None,
 ) -> str:
-    """Build ItemInventoryAssemblyQueryRq — returns assemblies with BOM line items."""
+    """Build ItemInventoryAssemblyQueryRq — returns assemblies with BOM line items.
+
+    This is a list query, so it uses bare FromModifiedDate (not ModifiedDateRangeFilter).
+    """
     attrs = {"requestID": request_id}
     if iterator_start:
         attrs["iterator"] = "Start"
@@ -295,8 +298,7 @@ def build_assembly_bom_query(
     SubElement(rq, "MaxReturned").text = str(max_returned)
 
     if from_modified_date and not iterator_continue:
-        df = SubElement(rq, "ModifiedDateRangeFilter")
-        SubElement(df, "FromModifiedDate").text = from_modified_date
+        SubElement(rq, "FromModifiedDate").text = from_modified_date
 
     return _build_qbxml_envelope(rq)
 
