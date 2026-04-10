@@ -223,23 +223,45 @@ def parse_vendor(el: etree._Element) -> dict:
 
 
 def _parse_line_items(txn_el: etree._Element, txn_id: str) -> list[dict]:
-    """Extract line items from a transaction element."""
+    """Extract line items from a transaction element.
+
+    QB uses different tag names depending on transaction type:
+    - InvoiceLineRet, SalesReceiptLineRet, CreditMemoLineRet, EstimateLineRet,
+      SalesOrderLineRet — for sales transactions
+    - ItemLineRet — for item-based lines on bills, checks, credit cards, POs, etc.
+    - ExpenseLineRet — for expense lines on bills, checks, credit cards, etc.
+    - JournalDebitLineRet, JournalCreditLineRet — for journal entries
+    - PurchaseOrderLineRet — for purchase orders
+    - DepositLineRet — for deposits
+    - InventoryAdjustmentLineRet — for inventory adjustments
+    """
     lines = []
     seq = 0
-    for line_tag in ["InvoiceLineRet", "SalesReceiptLineRet", "BillLineRet",
-                      "CreditMemoLineRet", "EstimateLineRet", "PurchaseOrderLineRet",
-                      "SalesOrderLineRet", "JournalDebitLineRet", "JournalCreditLineRet"]:
+    for line_tag in [
+        # Sales transaction lines
+        "InvoiceLineRet", "SalesReceiptLineRet", "CreditMemoLineRet",
+        "EstimateLineRet", "SalesOrderLineRet",
+        # Purchase/expense transaction lines (bills, checks, credit cards, etc.)
+        "ItemLineRet", "ExpenseLineRet",
+        # Specific transaction types
+        "PurchaseOrderLineRet",
+        "JournalDebitLineRet", "JournalCreditLineRet",
+        "DepositLineRet",
+        "InventoryAdjustmentLineRet",
+        "CheckLineRet", "CreditCardChargeLineRet", "CreditCardCreditLineRet",
+        "VendorCreditLineRet",
+    ]:
         for line_el in txn_el.findall(line_tag):
             seq += 1
             line = {
                 "txn_id": txn_id,
                 "line_seq_no": seq,
                 "line_type": line_tag.replace("LineRet", "").replace("Ret", ""),
-                "item_name": _ref(line_el, "ItemRef"),
+                "item_name": _ref(line_el, "ItemRef") or _ref(line_el, "AccountRef"),
                 "item_list_id": _ref(line_el, "ItemRef", "ListID"),
-                "description": _text(line_el, "Desc"),
+                "description": _text(line_el, "Desc") or _text(line_el, "Memo"),
                 "quantity": _amount(line_el, "Quantity"),
-                "unit_price": _amount(line_el, "Rate") or _amount(line_el, "UnitPrice"),
+                "unit_price": _amount(line_el, "Rate") or _amount(line_el, "Cost") or _amount(line_el, "UnitPrice"),
                 "amount": _amount(line_el, "Amount"),
                 "sales_tax_code": _ref(line_el, "SalesTaxCodeRef"),
                 "class_name": _ref(line_el, "ClassRef"),
@@ -355,15 +377,16 @@ def parse_item_receipt(el: etree._Element) -> tuple[dict, list[dict]]:
         "edit_sequence": _text(el, "EditSequence"),
     }
     # Parse item receipt line items
+    # QB uses ItemLineRet for item lines and ExpenseLineRet for expense lines
     lines = []
     seq = 0
-    for line_tag in ["ItemReceiptLineRet", "ItemLineRet"]:
+    for line_tag in ["ItemLineRet", "ExpenseLineRet", "ItemGroupLineRet"]:
         for line_el in el.findall(line_tag):
             seq += 1
             line = {
                 "txn_id": txn_id,
                 "line_seq_no": seq,
-                "item_name": _ref(line_el, "ItemRef"),
+                "item_name": _ref(line_el, "ItemRef") or _ref(line_el, "AccountRef"),
                 "item_list_id": _ref(line_el, "ItemRef", "ListID"),
                 "description": _text(line_el, "Desc"),
                 "quantity": _amount(line_el, "Quantity"),
