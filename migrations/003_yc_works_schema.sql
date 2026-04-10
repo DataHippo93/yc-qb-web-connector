@@ -1,3 +1,4 @@
+CREATE SCHEMA IF NOT EXISTS yc_works;
 -- =============================================================================
 -- Migration 002: Per-company schema template
 --
@@ -15,7 +16,7 @@
 -- No company_id column — isolation is provided by the schema itself.
 -- =============================================================================
 
--- This file uses :schema as a substitution variable.
+-- This file uses yc_works as a substitution variable.
 -- When running via psql: \set schema natures_storehouse
 -- When running via bootstrap script, the script does the substitution.
 
@@ -23,7 +24,7 @@
 -- Reference / List objects
 -- ============================================================================
 
-CREATE TABLE IF NOT EXISTS :schema.accounts (
+CREATE TABLE IF NOT EXISTS yc_works.accounts (
     qb_list_id              TEXT PRIMARY KEY,
     name                    TEXT,
     full_name               TEXT,
@@ -43,10 +44,10 @@ CREATE TABLE IF NOT EXISTS :schema.accounts (
     edit_sequence           TEXT,
     synced_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_accounts_full_name ON :schema.accounts (full_name);
-CREATE INDEX IF NOT EXISTS idx_accounts_type ON :schema.accounts (account_type);
+CREATE INDEX IF NOT EXISTS idx_accounts_full_name ON yc_works.accounts (full_name);
+CREATE INDEX IF NOT EXISTS idx_accounts_type ON yc_works.accounts (account_type);
 
-CREATE TABLE IF NOT EXISTS :schema.classes (
+CREATE TABLE IF NOT EXISTS yc_works.classes (
     qb_list_id      TEXT PRIMARY KEY,
     name            TEXT,
     full_name       TEXT,
@@ -59,7 +60,7 @@ CREATE TABLE IF NOT EXISTS :schema.classes (
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.sales_tax_codes (
+CREATE TABLE IF NOT EXISTS yc_works.sales_tax_codes (
     qb_list_id      TEXT PRIMARY KEY,
     name            TEXT,
     is_active       BOOLEAN,
@@ -73,7 +74,7 @@ CREATE TABLE IF NOT EXISTS :schema.sales_tax_codes (
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.payment_methods (
+CREATE TABLE IF NOT EXISTS yc_works.payment_methods (
     qb_list_id          TEXT PRIMARY KEY,
     name                TEXT,
     is_active           BOOLEAN,
@@ -84,7 +85,7 @@ CREATE TABLE IF NOT EXISTS :schema.payment_methods (
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.ship_methods (
+CREATE TABLE IF NOT EXISTS yc_works.ship_methods (
     qb_list_id    TEXT PRIMARY KEY,
     name          TEXT,
     is_active     BOOLEAN,
@@ -94,7 +95,7 @@ CREATE TABLE IF NOT EXISTS :schema.ship_methods (
     synced_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.terms (
+CREATE TABLE IF NOT EXISTS yc_works.terms (
     qb_list_id          TEXT PRIMARY KEY,
     name                TEXT,
     is_active           BOOLEAN,
@@ -114,7 +115,7 @@ CREATE TABLE IF NOT EXISTS :schema.terms (
 -- ============================================================================
 -- Customers
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.customers (
+CREATE TABLE IF NOT EXISTS yc_works.customers (
     qb_list_id              TEXT PRIMARY KEY,
     name                    TEXT NOT NULL,
     full_name               TEXT,
@@ -164,14 +165,14 @@ CREATE TABLE IF NOT EXISTS :schema.customers (
     edit_sequence           TEXT,
     synced_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_customers_name     ON :schema.customers (name);
-CREATE INDEX IF NOT EXISTS idx_customers_email    ON :schema.customers (email);
-CREATE INDEX IF NOT EXISTS idx_customers_modified ON :schema.customers (time_modified DESC);
+CREATE INDEX IF NOT EXISTS idx_customers_name     ON yc_works.customers (name);
+CREATE INDEX IF NOT EXISTS idx_customers_email    ON yc_works.customers (email);
+CREATE INDEX IF NOT EXISTS idx_customers_modified ON yc_works.customers (time_modified DESC);
 
 -- ============================================================================
 -- Vendors
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.vendors (
+CREATE TABLE IF NOT EXISTS yc_works.vendors (
     qb_list_id              TEXT PRIMARY KEY,
     name                    TEXT NOT NULL,
     is_active               BOOLEAN,
@@ -203,13 +204,13 @@ CREATE TABLE IF NOT EXISTS :schema.vendors (
     edit_sequence           TEXT,
     synced_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_vendors_name     ON :schema.vendors (name);
-CREATE INDEX IF NOT EXISTS idx_vendors_modified ON :schema.vendors (time_modified DESC);
+CREATE INDEX IF NOT EXISTS idx_vendors_name     ON yc_works.vendors (name);
+CREATE INDEX IF NOT EXISTS idx_vendors_modified ON yc_works.vendors (time_modified DESC);
 
 -- ============================================================================
 -- Employees
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.employees (
+CREATE TABLE IF NOT EXISTS yc_works.employees (
     qb_list_id      TEXT PRIMARY KEY,
     name            TEXT,
     is_active       BOOLEAN,
@@ -237,7 +238,7 @@ CREATE TABLE IF NOT EXISTS :schema.employees (
 -- ============================================================================
 -- Items
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.items (
+CREATE TABLE IF NOT EXISTS yc_works.items (
     qb_list_id              TEXT PRIMARY KEY,
     name                    TEXT NOT NULL,
     full_name               TEXT,
@@ -267,13 +268,13 @@ CREATE TABLE IF NOT EXISTS :schema.items (
     edit_sequence           TEXT,
     synced_at               TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_items_name      ON :schema.items (name);
-CREATE INDEX IF NOT EXISTS idx_items_type      ON :schema.items (item_type);
-CREATE INDEX IF NOT EXISTS idx_items_modified  ON :schema.items (time_modified DESC);
+CREATE INDEX IF NOT EXISTS idx_items_name      ON yc_works.items (name);
+CREATE INDEX IF NOT EXISTS idx_items_type      ON yc_works.items (item_type);
+CREATE INDEX IF NOT EXISTS idx_items_modified  ON yc_works.items (time_modified DESC);
 
 -- Assembly Bill of Materials
-CREATE TABLE IF NOT EXISTS :schema.assembly_bom_lines (
-    assembly_list_id    TEXT NOT NULL REFERENCES :schema.items(qb_list_id) ON DELETE CASCADE,
+CREATE TABLE IF NOT EXISTS yc_works.assembly_bom_lines (
+    assembly_list_id    TEXT NOT NULL REFERENCES yc_works.items(qb_list_id) ON DELETE CASCADE,
     line_seq_no         INTEGER NOT NULL,
     item_list_id        TEXT,
     item_name           TEXT,
@@ -281,17 +282,17 @@ CREATE TABLE IF NOT EXISTS :schema.assembly_bom_lines (
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     PRIMARY KEY (assembly_list_id, line_seq_no)
 );
-CREATE INDEX IF NOT EXISTS idx_bom_assembly ON :schema.assembly_bom_lines (assembly_list_id);
-CREATE INDEX IF NOT EXISTS idx_bom_item     ON :schema.assembly_bom_lines (item_list_id);
+CREATE INDEX IF NOT EXISTS idx_bom_assembly ON yc_works.assembly_bom_lines (assembly_list_id);
+CREATE INDEX IF NOT EXISTS idx_bom_item     ON yc_works.assembly_bom_lines (item_list_id);
 
 -- ============================================================================
 -- Invoices + line items
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.invoices (
+CREATE TABLE IF NOT EXISTS yc_works.invoices (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
-    customer_list_id    TEXT REFERENCES :schema.customers(qb_list_id) ON DELETE SET NULL,
+    customer_list_id    TEXT REFERENCES yc_works.customers(qb_list_id) ON DELETE SET NULL,
     customer_name       TEXT,
     class_name          TEXT,
     ar_account          TEXT,
@@ -320,14 +321,14 @@ CREATE TABLE IF NOT EXISTS :schema.invoices (
     edit_sequence       TEXT,
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_invoices_customer  ON :schema.invoices (customer_list_id);
-CREATE INDEX IF NOT EXISTS idx_invoices_date      ON :schema.invoices (txn_date DESC);
-CREATE INDEX IF NOT EXISTS idx_invoices_modified  ON :schema.invoices (time_modified DESC);
-CREATE INDEX IF NOT EXISTS idx_invoices_unpaid     ON :schema.invoices (is_paid) WHERE is_paid = false;
+CREATE INDEX IF NOT EXISTS idx_invoices_customer  ON yc_works.invoices (customer_list_id);
+CREATE INDEX IF NOT EXISTS idx_invoices_date      ON yc_works.invoices (txn_date DESC);
+CREATE INDEX IF NOT EXISTS idx_invoices_modified  ON yc_works.invoices (time_modified DESC);
+CREATE INDEX IF NOT EXISTS idx_invoices_unpaid     ON yc_works.invoices (is_paid) WHERE is_paid = false;
 
-CREATE TABLE IF NOT EXISTS :schema.invoice_lines (
+CREATE TABLE IF NOT EXISTS yc_works.invoice_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.invoices(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.invoices(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     line_type       TEXT,
     item_name       TEXT,
@@ -343,12 +344,12 @@ CREATE TABLE IF NOT EXISTS :schema.invoice_lines (
     service_date    DATE,
     UNIQUE (txn_id, line_seq_no)
 );
-CREATE INDEX IF NOT EXISTS idx_invoice_lines_txn ON :schema.invoice_lines (txn_id);
+CREATE INDEX IF NOT EXISTS idx_invoice_lines_txn ON yc_works.invoice_lines (txn_id);
 
 -- ============================================================================
 -- Sales Receipts
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.sales_receipts (
+CREATE TABLE IF NOT EXISTS yc_works.sales_receipts (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -369,12 +370,12 @@ CREATE TABLE IF NOT EXISTS :schema.sales_receipts (
     edit_sequence       TEXT,
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_sales_receipts_date     ON :schema.sales_receipts (txn_date DESC);
-CREATE INDEX IF NOT EXISTS idx_sales_receipts_customer ON :schema.sales_receipts (customer_list_id);
+CREATE INDEX IF NOT EXISTS idx_sales_receipts_date     ON yc_works.sales_receipts (txn_date DESC);
+CREATE INDEX IF NOT EXISTS idx_sales_receipts_customer ON yc_works.sales_receipts (customer_list_id);
 
-CREATE TABLE IF NOT EXISTS :schema.sales_receipt_lines (
+CREATE TABLE IF NOT EXISTS yc_works.sales_receipt_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.sales_receipts(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.sales_receipts(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     line_type       TEXT,
     item_name       TEXT,
@@ -391,7 +392,7 @@ CREATE TABLE IF NOT EXISTS :schema.sales_receipt_lines (
 -- ============================================================================
 -- Credit Memos
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.credit_memos (
+CREATE TABLE IF NOT EXISTS yc_works.credit_memos (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -409,9 +410,9 @@ CREATE TABLE IF NOT EXISTS :schema.credit_memos (
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.credit_memo_lines (
+CREATE TABLE IF NOT EXISTS yc_works.credit_memo_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.credit_memos(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.credit_memos(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     item_name       TEXT,
     item_list_id    TEXT,
@@ -425,11 +426,11 @@ CREATE TABLE IF NOT EXISTS :schema.credit_memo_lines (
 -- ============================================================================
 -- Bills + lines
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.bills (
+CREATE TABLE IF NOT EXISTS yc_works.bills (
     qb_txn_id       TEXT PRIMARY KEY,
     txn_number      TEXT,
     txn_date        DATE,
-    vendor_list_id  TEXT REFERENCES :schema.vendors(qb_list_id) ON DELETE SET NULL,
+    vendor_list_id  TEXT REFERENCES yc_works.vendors(qb_list_id) ON DELETE SET NULL,
     vendor_name     TEXT,
     ap_account      TEXT,
     due_date        DATE,
@@ -441,13 +442,13 @@ CREATE TABLE IF NOT EXISTS :schema.bills (
     edit_sequence   TEXT,
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_bills_vendor   ON :schema.bills (vendor_list_id);
-CREATE INDEX IF NOT EXISTS idx_bills_date     ON :schema.bills (txn_date DESC);
-CREATE INDEX IF NOT EXISTS idx_bills_unpaid   ON :schema.bills (is_paid) WHERE is_paid = false;
+CREATE INDEX IF NOT EXISTS idx_bills_vendor   ON yc_works.bills (vendor_list_id);
+CREATE INDEX IF NOT EXISTS idx_bills_date     ON yc_works.bills (txn_date DESC);
+CREATE INDEX IF NOT EXISTS idx_bills_unpaid   ON yc_works.bills (is_paid) WHERE is_paid = false;
 
-CREATE TABLE IF NOT EXISTS :schema.bill_lines (
+CREATE TABLE IF NOT EXISTS yc_works.bill_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.bills(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.bills(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     line_type       TEXT,
     item_name       TEXT,
@@ -464,7 +465,7 @@ CREATE TABLE IF NOT EXISTS :schema.bill_lines (
 -- ============================================================================
 -- Bill Payments
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.bill_payments (
+CREATE TABLE IF NOT EXISTS yc_works.bill_payments (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -484,7 +485,7 @@ CREATE TABLE IF NOT EXISTS :schema.bill_payments (
 -- ============================================================================
 -- Vendor Credits
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.vendor_credits (
+CREATE TABLE IF NOT EXISTS yc_works.vendor_credits (
     qb_txn_id       TEXT PRIMARY KEY,
     txn_number      TEXT,
     txn_date        DATE,
@@ -499,9 +500,9 @@ CREATE TABLE IF NOT EXISTS :schema.vendor_credits (
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.vendor_credit_lines (
+CREATE TABLE IF NOT EXISTS yc_works.vendor_credit_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.vendor_credits(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.vendor_credits(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     account_name    TEXT,
     item_name       TEXT,
@@ -513,7 +514,7 @@ CREATE TABLE IF NOT EXISTS :schema.vendor_credit_lines (
 -- ============================================================================
 -- Purchase Orders
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.purchase_orders (
+CREATE TABLE IF NOT EXISTS yc_works.purchase_orders (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -536,9 +537,9 @@ CREATE TABLE IF NOT EXISTS :schema.purchase_orders (
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.purchase_order_lines (
+CREATE TABLE IF NOT EXISTS yc_works.purchase_order_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.purchase_orders(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.purchase_orders(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     item_name       TEXT,
     item_list_id    TEXT,
@@ -555,7 +556,7 @@ CREATE TABLE IF NOT EXISTS :schema.purchase_order_lines (
 -- ============================================================================
 -- Estimates
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.estimates (
+CREATE TABLE IF NOT EXISTS yc_works.estimates (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -575,9 +576,9 @@ CREATE TABLE IF NOT EXISTS :schema.estimates (
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.estimate_lines (
+CREATE TABLE IF NOT EXISTS yc_works.estimate_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.estimates(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.estimates(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     item_name       TEXT,
     item_list_id    TEXT,
@@ -591,7 +592,7 @@ CREATE TABLE IF NOT EXISTS :schema.estimate_lines (
 -- ============================================================================
 -- Sales Orders
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.sales_orders (
+CREATE TABLE IF NOT EXISTS yc_works.sales_orders (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -609,9 +610,9 @@ CREATE TABLE IF NOT EXISTS :schema.sales_orders (
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.sales_order_lines (
+CREATE TABLE IF NOT EXISTS yc_works.sales_order_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.sales_orders(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.sales_orders(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     item_name       TEXT,
     item_list_id    TEXT,
@@ -627,7 +628,7 @@ CREATE TABLE IF NOT EXISTS :schema.sales_order_lines (
 -- ============================================================================
 -- Receive Payments
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.receive_payments (
+CREATE TABLE IF NOT EXISTS yc_works.receive_payments (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -647,7 +648,7 @@ CREATE TABLE IF NOT EXISTS :schema.receive_payments (
 -- ============================================================================
 -- Deposits
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.deposits (
+CREATE TABLE IF NOT EXISTS yc_works.deposits (
     qb_txn_id       TEXT PRIMARY KEY,
     txn_date        DATE,
     deposit_to_account TEXT,
@@ -662,9 +663,9 @@ CREATE TABLE IF NOT EXISTS :schema.deposits (
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.deposit_lines (
+CREATE TABLE IF NOT EXISTS yc_works.deposit_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.deposits(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.deposits(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     entity_name     TEXT,
     account_name    TEXT,
@@ -677,7 +678,7 @@ CREATE TABLE IF NOT EXISTS :schema.deposit_lines (
 -- ============================================================================
 -- Checks
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.checks (
+CREATE TABLE IF NOT EXISTS yc_works.checks (
     qb_txn_id       TEXT PRIMARY KEY,
     txn_number      TEXT,
     txn_date        DATE,
@@ -692,9 +693,9 @@ CREATE TABLE IF NOT EXISTS :schema.checks (
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.check_lines (
+CREATE TABLE IF NOT EXISTS yc_works.check_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.checks(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.checks(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     account_name    TEXT,
     item_name       TEXT,
@@ -706,7 +707,7 @@ CREATE TABLE IF NOT EXISTS :schema.check_lines (
 -- ============================================================================
 -- Credit Card Charges
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.credit_card_charges (
+CREATE TABLE IF NOT EXISTS yc_works.credit_card_charges (
     qb_txn_id       TEXT PRIMARY KEY,
     txn_number      TEXT,
     txn_date        DATE,
@@ -720,9 +721,9 @@ CREATE TABLE IF NOT EXISTS :schema.credit_card_charges (
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.credit_card_charge_lines (
+CREATE TABLE IF NOT EXISTS yc_works.credit_card_charge_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.credit_card_charges(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.credit_card_charges(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     account_name    TEXT,
     item_name       TEXT,
@@ -734,7 +735,7 @@ CREATE TABLE IF NOT EXISTS :schema.credit_card_charge_lines (
 -- ============================================================================
 -- Credit Card Credits
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.credit_card_credits (
+CREATE TABLE IF NOT EXISTS yc_works.credit_card_credits (
     qb_txn_id       TEXT PRIMARY KEY,
     txn_number      TEXT,
     txn_date        DATE,
@@ -748,9 +749,9 @@ CREATE TABLE IF NOT EXISTS :schema.credit_card_credits (
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.credit_card_credit_lines (
+CREATE TABLE IF NOT EXISTS yc_works.credit_card_credit_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.credit_card_credits(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.credit_card_credits(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     account_name    TEXT,
     item_name       TEXT,
@@ -762,7 +763,7 @@ CREATE TABLE IF NOT EXISTS :schema.credit_card_credit_lines (
 -- ============================================================================
 -- Journal Entries
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.journal_entries (
+CREATE TABLE IF NOT EXISTS yc_works.journal_entries (
     qb_txn_id       TEXT PRIMARY KEY,
     txn_number      TEXT,
     txn_date        DATE,
@@ -773,11 +774,11 @@ CREATE TABLE IF NOT EXISTS :schema.journal_entries (
     edit_sequence   TEXT,
     synced_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_je_date ON :schema.journal_entries (txn_date DESC);
+CREATE INDEX IF NOT EXISTS idx_je_date ON yc_works.journal_entries (txn_date DESC);
 
-CREATE TABLE IF NOT EXISTS :schema.journal_entry_lines (
+CREATE TABLE IF NOT EXISTS yc_works.journal_entry_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.journal_entries(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.journal_entries(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     line_type       TEXT,       -- Debit or Credit
     account_name    TEXT,
@@ -791,7 +792,7 @@ CREATE TABLE IF NOT EXISTS :schema.journal_entry_lines (
 -- ============================================================================
 -- Transfers
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.transfers (
+CREATE TABLE IF NOT EXISTS yc_works.transfers (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_date            DATE,
     from_account        TEXT,
@@ -808,7 +809,7 @@ CREATE TABLE IF NOT EXISTS :schema.transfers (
 -- ============================================================================
 -- Inventory Adjustments
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.inventory_adjustments (
+CREATE TABLE IF NOT EXISTS yc_works.inventory_adjustments (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_number          TEXT,
     txn_date            DATE,
@@ -822,9 +823,9 @@ CREATE TABLE IF NOT EXISTS :schema.inventory_adjustments (
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE TABLE IF NOT EXISTS :schema.inventory_adjustment_lines (
+CREATE TABLE IF NOT EXISTS yc_works.inventory_adjustment_lines (
     id              BIGSERIAL PRIMARY KEY,
-    txn_id          TEXT NOT NULL REFERENCES :schema.inventory_adjustments(qb_txn_id) ON DELETE CASCADE,
+    txn_id          TEXT NOT NULL REFERENCES yc_works.inventory_adjustments(qb_txn_id) ON DELETE CASCADE,
     line_seq_no     INTEGER NOT NULL,
     item_name       TEXT,
     item_list_id    TEXT,
@@ -838,7 +839,7 @@ CREATE TABLE IF NOT EXISTS :schema.inventory_adjustment_lines (
 -- ============================================================================
 -- Time Tracking
 -- ============================================================================
-CREATE TABLE IF NOT EXISTS :schema.time_tracking (
+CREATE TABLE IF NOT EXISTS yc_works.time_tracking (
     qb_txn_id           TEXT PRIMARY KEY,
     txn_date            DATE,
     entity_name         TEXT,
@@ -854,8 +855,8 @@ CREATE TABLE IF NOT EXISTS :schema.time_tracking (
     edit_sequence       TEXT,
     synced_at           TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
-CREATE INDEX IF NOT EXISTS idx_time_tracking_date     ON :schema.time_tracking (txn_date DESC);
-CREATE INDEX IF NOT EXISTS idx_time_tracking_customer ON :schema.time_tracking (customer_name);
+CREATE INDEX IF NOT EXISTS idx_time_tracking_date     ON yc_works.time_tracking (txn_date DESC);
+CREATE INDEX IF NOT EXISTS idx_time_tracking_customer ON yc_works.time_tracking (customer_name);
 
 -- ============================================================================
 -- Row-Level Security
@@ -866,17 +867,21 @@ DECLARE
     t TEXT;
 BEGIN
     FOR t IN
-        SELECT tablename FROM pg_tables WHERE schemaname = :'schema'
+        SELECT tablename FROM pg_tables WHERE schemaname = 'yc_works'
     LOOP
-        EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', :'schema', t);
-        -- Service role policy (drop + create to avoid "already exists" error)
-        BEGIN
-            EXECUTE format(
-                'CREATE POLICY "service_role_all" ON %I.%I USING (true) WITH CHECK (true)',
-                :'schema', t
-            );
-        EXCEPTION WHEN duplicate_object THEN
-            NULL; -- policy already exists, skip
-        END;
+        EXECUTE format('ALTER TABLE %I.%I ENABLE ROW LEVEL SECURITY', 'yc_works', t);
+        -- Service role policy
+        EXECUTE format(
+            'CREATE POLICY IF NOT EXISTS "service_role_all" ON %I.%I USING (true) WITH CHECK (true)',
+            'yc_works', t
+        );
     END LOOP;
 END $$;
+
+-- Register YC Works in qb_meta.companies
+INSERT INTO qb_meta.companies (company_id, pg_schema, display_name)
+VALUES ('yc_works', 'yc_works', 'YC Works LLC')
+ON CONFLICT (company_id) DO UPDATE
+    SET pg_schema    = EXCLUDED.pg_schema,
+        display_name = EXCLUDED.display_name,
+        updated_at   = NOW();

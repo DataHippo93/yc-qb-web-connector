@@ -26,7 +26,8 @@ COMMENT ON TABLE qb_meta.companies IS
 INSERT INTO qb_meta.companies (company_id, pg_schema, display_name)
 VALUES
     ('natures_storehouse', 'natures_storehouse', 'Nature''s Storehouse'),
-    ('adk_fragrance',      'adk_fragrance',      'Adirondack Fragrance Farm')
+    ('adk_fragrance',      'adk_fragrance',      'Adirondack Fragrance Farm'),
+    ('yc_works',           'yc_works',           'YC Works LLC')
 ON CONFLICT (company_id) DO UPDATE
     SET pg_schema    = EXCLUDED.pg_schema,
         display_name = EXCLUDED.display_name,

@@ -7,7 +7,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from src.qbxml.builders import build_query_for_entity
-from src.qbxml.entities import get_entities_for_company
+from src.qbxml.entities import get_entities_for_company, get_entity
 from src.qbxml.parsers import parse_qbxml_response
 from src.soap.session import SyncSession, SyncTask
 from src.supabase.upsert import SupabaseUpserter
@@ -86,7 +86,7 @@ class SyncCoordinator:
         max_returned = company_cfg.get("max_returned", self._settings.qbxml_max_returned)
 
         if task.started_at is None:
-            task.started_at = datetime.now(timezone.utc)
+            task.started_at = datetime.now(timezone.utc).isoformat()
             self._state.mark_running(session.company_id, task.entity_type)
             logger.info(
                 "entity_start",
@@ -96,8 +96,15 @@ class SyncCoordinator:
                 from_date=task.from_date,
             )
 
+        # Check if this entity supports iterators
+        try:
+            edef = get_entity(task.entity_type)
+            use_iterator = edef.supports_iterator
+        except KeyError:
+            use_iterator = False
+
         # Build request
-        if task.iterator_id is not None:
+        if task.iterator_id is not None and use_iterator:
             # Continue an in-progress iterator
             xml = build_query_for_entity(
                 entity_name=task.entity_type,
@@ -115,7 +122,7 @@ class SyncCoordinator:
                 request_id=str(session.current_task_index + 1),
                 from_modified_date=task.from_date,
                 max_returned=max_returned,
-                iterator_start=True,
+                iterator_start=use_iterator,
             )
 
         logger.debug(
@@ -141,6 +148,24 @@ class SyncCoordinator:
         # Parse
         parsed = parse_qbxml_response(response_xml, task.entity_type)
 
+        # Status code 1 = "no matching object found" — not an error, just empty
+        if parsed.status_code == 1:
+            logger.info(
+                "no_records_found",
+                company=session.company_id,
+                entity=task.entity_type,
+                message=parsed.status_message,
+            )
+            task.completed_at = datetime.now(timezone.utc).isoformat()
+            self._state.mark_done(
+                company_id=session.company_id,
+                entity_type=task.entity_type,
+                records_synced=0,
+                is_full_sync=not task.is_incremental,
+            )
+            session.advance_task()
+            return session.progress_pct
+
         if not parsed.is_success:
             msg = f"QB error {parsed.status_code}: {parsed.status_message}"
             logger.error(
@@ -154,27 +179,14 @@ class SyncCoordinator:
             session.errors.append(f"{task.entity_type}: {msg}")
             self._state.mark_error(session.company_id, task.entity_type, msg)
             # Skip entity
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(timezone.utc).isoformat()
             session.advance_task()
             return session.progress_pct
 
         # Upsert records into company's Postgres schema
         if parsed.records:
             try:
-                import asyncio
-                # Run async upsert synchronously (SOAP handler is sync)
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    # We're already in an async context — use run_coroutine_threadsafe
-                    import concurrent.futures
-                    future = asyncio.ensure_future(
-                        self._upserter.upsert(pg_schema, task.entity_type, parsed.records)
-                    )
-                    upserted = asyncio.get_event_loop().run_until_complete(future)
-                else:
-                    upserted = loop.run_until_complete(
-                        self._upserter.upsert(pg_schema, task.entity_type, parsed.records)
-                    )
+                upserted = self._upserter.upsert(pg_schema, task.entity_type, parsed.records)
                 task.records_processed += upserted
                 session.total_records_synced += upserted
             except Exception as e:
@@ -186,6 +198,25 @@ class SyncCoordinator:
                     error=str(e),
                 )
                 session.errors.append(f"{task.entity_type} upsert: {e}")
+
+        # Upsert BOM lines for assembly items
+        if parsed.bom_lines:
+            try:
+                self._upserter.upsert_bom_lines(pg_schema, parsed.bom_lines)
+                logger.info(
+                    "bom_lines_upserted",
+                    company=session.company_id,
+                    schema=pg_schema,
+                    count=len(parsed.bom_lines),
+                )
+            except Exception as e:
+                logger.error(
+                    "bom_upsert_error",
+                    company=session.company_id,
+                    schema=pg_schema,
+                    error=str(e),
+                )
+                session.errors.append(f"assembly_bom_lines upsert: {e}")
 
         # Update iterator state
         if parsed.has_more:
@@ -201,7 +232,7 @@ class SyncCoordinator:
             # Entity fully synced
             task.iterator_id = None
             task.iterator_remaining = 0
-            task.completed_at = datetime.now(timezone.utc)
+            task.completed_at = datetime.now(timezone.utc).isoformat()
 
             self._state.mark_done(
                 company_id=session.company_id,

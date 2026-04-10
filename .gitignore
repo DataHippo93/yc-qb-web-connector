@@ -26,3 +26,4 @@ logs/
 
 # Docker
 *.override.yml
+.vercel

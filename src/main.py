@@ -1,17 +1,15 @@
 """
-FastAPI application — mounts the spyne SOAP service and exposes REST health/status endpoints.
+FastAPI application — handles SOAP requests for QBWC and exposes REST health/status endpoints.
 """
 from __future__ import annotations
 
-import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, PlainTextResponse
-from starlette.middleware.wsgi import WSGIMiddleware
+from fastapi.responses import JSONResponse
 
-from src.soap.service import build_soap_wsgi_app
+from src.soap.service import handle_soap_request, get_wsdl
 from src.soap.session import get_session_store
 from src.supabase.client import get_supabase_client
 from src.supabase.upsert import MetaUpserter
@@ -43,17 +41,10 @@ async def lifespan(app: FastAPI):
             display_name=company_cfg.display_name(cid),
         )
 
-    # Background task: clean up expired sessions every 5 minutes
-    async def cleanup_sessions():
-        while True:
-            await asyncio.sleep(300)
-            removed = get_session_store().cleanup_expired()
-            if removed:
-                logger.info("expired_sessions_cleaned", count=removed)
+    # Clean up expired sessions on startup (serverless-friendly)
+    get_session_store().cleanup_expired()
 
-    task = asyncio.create_task(cleanup_sessions())
     yield
-    task.cancel()
     logger.info("shutting_down")
 
 
@@ -79,12 +70,34 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
 
-    # ---- Mount SOAP service at /qbwc/ ----
-    # QBWC expects SOAP at this URL (set in .qwc file)
-    soap_wsgi = build_soap_wsgi_app()
-    app.mount("/qbwc", WSGIMiddleware(soap_wsgi))
+    # ---- SOAP endpoint at /qbwc/ ----
+    # QBWC sends SOAP POST requests here
+    @app.post("/qbwc/")
+    @app.post("/qbwc")
+    async def qbwc_soap(request: Request):
+        body = await request.body()
+        response_xml = handle_soap_request(body)
+        return Response(
+            content=response_xml,
+            media_type="text/xml; charset=utf-8",
+        )
+
+    @app.get("/qbwc/")
+    @app.get("/qbwc")
+    async def qbwc_wsdl(request: Request):
+        """Serve WSDL for QBWC discovery."""
+        base_url = str(request.base_url).rstrip("/")
+        wsdl_content = get_wsdl(base_url)
+        return Response(
+            content=wsdl_content,
+            media_type="text/xml; charset=utf-8",
+        )
 
     # ---- REST endpoints ----
+
+    @app.get("/")
+    async def root():
+        return {"app": "YC QuickBooks Web Connector", "status": "ok", "version": "1.0.0"}
 
     @app.get("/health")
     async def health():
@@ -171,14 +184,6 @@ def create_app() -> FastAPI:
         """Active QBWC sessions (for debugging)."""
         store = get_session_store()
         return {"active_sessions": store.active_count()}
-
-    @app.get("/wsdl")
-    async def wsdl(request: Request):
-        """Redirect to the SOAP WSDL."""
-        return Response(
-            status_code=307,
-            headers={"Location": "/qbwc?wsdl"},
-        )
 
     return app
 
