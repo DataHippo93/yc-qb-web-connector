@@ -41,6 +41,8 @@ def build_generic_query(
     iterator_start: bool = False,
     iterator_continue: bool = False,
     iterator_id: str | None = None,
+    is_transaction: bool = False,
+    include_line_items: bool = False,
 ) -> str:
     """
     Generic qbXML query builder for any entity.
@@ -53,6 +55,9 @@ def build_generic_query(
         iterator_start: Start a new iterator
         iterator_continue: Continue an existing iterator
         iterator_id: Required when iterator_continue=True
+        is_transaction: True for transactions (use ModifiedDateRangeFilter),
+                        False for lists (use bare FromModifiedDate)
+        include_line_items: Add IncludeLineItems=true for transactions with lines
     """
     attrs = {"requestID": request_id}
     if iterator_start:
@@ -68,16 +73,19 @@ def build_generic_query(
     max_el = SubElement(rq, "MaxReturned")
     max_el.text = str(max_returned)
 
-    # Incremental filter
+    # Incremental filter — don't add on Continue (must match original request)
     if from_modified_date and not iterator_continue:
-        # Don't add filter on Continue — must match original request
-        if iterator_start:
-            # Iterator-capable queries use ModifiedDateRangeFilter wrapper
+        if is_transaction:
+            # Transaction queries use ModifiedDateRangeFilter wrapper
             date_filter = SubElement(rq, "ModifiedDateRangeFilter")
             SubElement(date_filter, "FromModifiedDate").text = from_modified_date
         else:
-            # Simple list queries use direct FromModifiedDate element
+            # List queries use bare FromModifiedDate
             SubElement(rq, "FromModifiedDate").text = from_modified_date
+
+    # Include line items for transactions that have them
+    if include_line_items:
+        SubElement(rq, "IncludeLineItems").text = "true"
 
     return _build_qbxml_envelope(rq)
 
@@ -102,8 +110,7 @@ def build_customer_query(
     SubElement(rq, "MaxReturned").text = str(max_returned)
 
     if from_modified_date and not iterator_continue:
-        df = SubElement(rq, "ModifiedDateRangeFilter")
-        SubElement(df, "FromModifiedDate").text = from_modified_date
+        SubElement(rq, "FromModifiedDate").text = from_modified_date
 
     # Include all fields
     for field in [
@@ -182,8 +189,7 @@ def build_item_query(
     SubElement(rq, "MaxReturned").text = str(max_returned)
 
     if from_modified_date and not iterator_continue:
-        df = SubElement(rq, "ModifiedDateRangeFilter")
-        SubElement(df, "FromModifiedDate").text = from_modified_date
+        SubElement(rq, "FromModifiedDate").text = from_modified_date
 
     return _build_qbxml_envelope(rq)
 
@@ -226,8 +232,7 @@ def build_vendor_query(
     SubElement(rq, "MaxReturned").text = str(max_returned)
 
     if from_modified_date and not iterator_continue:
-        df = SubElement(rq, "ModifiedDateRangeFilter")
-        SubElement(df, "FromModifiedDate").text = from_modified_date
+        SubElement(rq, "FromModifiedDate").text = from_modified_date
 
     for field in [
         "ListID", "TimeCreated", "TimeModified", "EditSequence",
@@ -389,6 +394,16 @@ def build_query_for_entity(
             iterator_id=iterator_id,
         )
     else:
+        # Look up entity definition to determine if it's a transaction with lines
+        from src.qbxml.entities import ENTITY_BY_NAME
+
+        edef = ENTITY_BY_NAME.get(entity_name)
+        is_txn = edef.is_transaction if edef else False
+        # Transaction queries with line items need IncludeLineItems=true
+        has_lines = is_txn and entity_name not in (
+            "bill_payments", "receive_payments", "transfers", "time_tracking",
+        )
+
         return build_generic_query(
             query_rq=query_rq,
             request_id=request_id,
@@ -397,4 +412,6 @@ def build_query_for_entity(
             iterator_start=iterator_start,
             iterator_continue=iterator_continue,
             iterator_id=iterator_id,
+            is_transaction=is_txn,
+            include_line_items=has_lines,
         )
