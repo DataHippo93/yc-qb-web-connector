@@ -222,35 +222,26 @@ def parse_vendor(el: etree._Element) -> dict:
     }
 
 
-def _parse_line_items(txn_el: etree._Element, txn_id: str) -> list[dict]:
+def _parse_line_items(txn_el: etree._Element, txn_id: str, line_tags: list[str] | None = None) -> list[dict]:
     """Extract line items from a transaction element.
 
-    QB uses different tag names depending on transaction type:
-    - InvoiceLineRet, SalesReceiptLineRet, CreditMemoLineRet, EstimateLineRet,
-      SalesOrderLineRet — for sales transactions
-    - ItemLineRet — for item-based lines on bills, checks, credit cards, POs, etc.
-    - ExpenseLineRet — for expense lines on bills, checks, credit cards, etc.
-    - JournalDebitLineRet, JournalCreditLineRet — for journal entries
-    - PurchaseOrderLineRet — for purchase orders
-    - DepositLineRet — for deposits
-    - InventoryAdjustmentLineRet — for inventory adjustments
+    Produces dicts matching the standard line table schema (invoice_lines,
+    sales_receipt_lines, credit_memo_lines, estimate_lines, sales_order_lines,
+    bill_lines, purchase_order_lines).
     """
+    if line_tags is None:
+        line_tags = [
+            # Sales transaction lines
+            "InvoiceLineRet", "SalesReceiptLineRet", "CreditMemoLineRet",
+            "EstimateLineRet", "SalesOrderLineRet",
+            # Purchase/expense transaction lines (bills, checks, credit cards, etc.)
+            "ItemLineRet", "ExpenseLineRet",
+            # Specific transaction types
+            "PurchaseOrderLineRet",
+        ]
     lines = []
     seq = 0
-    for line_tag in [
-        # Sales transaction lines
-        "InvoiceLineRet", "SalesReceiptLineRet", "CreditMemoLineRet",
-        "EstimateLineRet", "SalesOrderLineRet",
-        # Purchase/expense transaction lines (bills, checks, credit cards, etc.)
-        "ItemLineRet", "ExpenseLineRet",
-        # Specific transaction types
-        "PurchaseOrderLineRet",
-        "JournalDebitLineRet", "JournalCreditLineRet",
-        "DepositLineRet",
-        "InventoryAdjustmentLineRet",
-        "CheckLineRet", "CreditCardChargeLineRet", "CreditCardCreditLineRet",
-        "VendorCreditLineRet",
-    ]:
+    for line_tag in line_tags:
         for line_el in txn_el.findall(line_tag):
             seq += 1
             line = {
@@ -259,17 +250,130 @@ def _parse_line_items(txn_el: etree._Element, txn_id: str) -> list[dict]:
                 "line_type": line_tag.replace("LineRet", "").replace("Ret", ""),
                 "item_name": _ref(line_el, "ItemRef") or _ref(line_el, "AccountRef"),
                 "item_list_id": _ref(line_el, "ItemRef", "ListID"),
+                "account_name": _ref(line_el, "AccountRef"),
                 "description": _text(line_el, "Desc") or _text(line_el, "Memo"),
                 "quantity": _amount(line_el, "Quantity"),
                 "unit_price": _amount(line_el, "Rate") or _amount(line_el, "Cost") or _amount(line_el, "UnitPrice"),
                 "amount": _amount(line_el, "Amount"),
                 "sales_tax_code": _ref(line_el, "SalesTaxCodeRef"),
                 "class_name": _ref(line_el, "ClassRef"),
-                "account_name": _ref(line_el, "AccountRef"),
                 "memo": _text(line_el, "Memo"),
                 "service_date": _text(line_el, "ServiceDate"),
             }
             lines.append(line)
+    return lines
+
+
+def _parse_journal_lines(txn_el: etree._Element, txn_id: str) -> list[dict]:
+    """Extract journal entry debit/credit lines.
+
+    journal_entry_lines columns: txn_id, line_seq_no, line_type, account_name,
+    amount, memo, entity_name, class_name
+    """
+    lines = []
+    seq = 0
+    for line_tag in ["JournalDebitLineRet", "JournalCreditLineRet"]:
+        for line_el in txn_el.findall(line_tag):
+            seq += 1
+            lines.append({
+                "txn_id": txn_id,
+                "line_seq_no": seq,
+                "line_type": "Debit" if "Debit" in line_tag else "Credit",
+                "account_name": _ref(line_el, "AccountRef"),
+                "amount": _amount(line_el, "Amount"),
+                "memo": _text(line_el, "Memo"),
+                "entity_name": _ref(line_el, "EntityRef"),
+                "class_name": _ref(line_el, "ClassRef"),
+            })
+    return lines
+
+
+def _parse_deposit_lines(txn_el: etree._Element, txn_id: str) -> list[dict]:
+    """Extract deposit lines.
+
+    deposit_lines columns: txn_id, line_seq_no, entity_name, account_name,
+    memo, amount, payment_method
+    """
+    lines = []
+    seq = 0
+    for line_el in txn_el.findall("DepositLineRet"):
+        seq += 1
+        lines.append({
+            "txn_id": txn_id,
+            "line_seq_no": seq,
+            "entity_name": _ref(line_el, "EntityRef"),
+            "account_name": _ref(line_el, "AccountRef"),
+            "memo": _text(line_el, "Memo"),
+            "amount": _amount(line_el, "Amount"),
+            "payment_method": _ref(line_el, "PaymentMethodRef"),
+        })
+    return lines
+
+
+def _parse_check_expense_lines(txn_el: etree._Element, txn_id: str) -> list[dict]:
+    """Extract check/credit card charge/credit lines.
+
+    check_lines, credit_card_charge_lines, credit_card_credit_lines columns:
+    txn_id, line_seq_no, account_name, item_name, description, amount
+    """
+    lines = []
+    seq = 0
+    for line_tag in ["ItemLineRet", "ExpenseLineRet"]:
+        for line_el in txn_el.findall(line_tag):
+            seq += 1
+            lines.append({
+                "txn_id": txn_id,
+                "line_seq_no": seq,
+                "account_name": _ref(line_el, "AccountRef"),
+                "item_name": _ref(line_el, "ItemRef"),
+                "description": _text(line_el, "Desc") or _text(line_el, "Memo"),
+                "amount": _amount(line_el, "Amount"),
+            })
+    return lines
+
+
+def _parse_vendor_credit_lines(txn_el: etree._Element, txn_id: str) -> list[dict]:
+    """Extract vendor credit lines.
+
+    vendor_credit_lines columns: txn_id, line_seq_no, account_name, item_name,
+    description, amount
+    """
+    lines = []
+    seq = 0
+    for line_tag in ["ItemLineRet", "ExpenseLineRet"]:
+        for line_el in txn_el.findall(line_tag):
+            seq += 1
+            lines.append({
+                "txn_id": txn_id,
+                "line_seq_no": seq,
+                "account_name": _ref(line_el, "AccountRef"),
+                "item_name": _ref(line_el, "ItemRef"),
+                "description": _text(line_el, "Desc") or _text(line_el, "Memo"),
+                "amount": _amount(line_el, "Amount"),
+            })
+    return lines
+
+
+def _parse_inventory_adjustment_lines(txn_el: etree._Element, txn_id: str) -> list[dict]:
+    """Extract inventory adjustment lines.
+
+    inventory_adjustment_lines columns: txn_id, line_seq_no, item_name,
+    item_list_id, qty_diff, value_diff, new_quantity, new_value
+    """
+    lines = []
+    seq = 0
+    for line_el in txn_el.findall("InventoryAdjustmentLineRet"):
+        seq += 1
+        lines.append({
+            "txn_id": txn_id,
+            "line_seq_no": seq,
+            "item_name": _ref(line_el, "ItemRef"),
+            "item_list_id": _ref(line_el, "ItemRef", "ListID"),
+            "qty_diff": _amount(line_el, "QuantityDifference"),
+            "value_diff": _amount(line_el, "ValueDifference"),
+            "new_quantity": _amount(line_el, "QuantityNew"),
+            "new_value": _amount(line_el, "ValueNew"),
+        })
     return lines
 
 
@@ -412,8 +516,435 @@ def parse_journal_entry(el: etree._Element) -> tuple[dict, list[dict]]:
         "time_modified": _text(el, "TimeModified"),
         "edit_sequence": _text(el, "EditSequence"),
     }
-    lines = _parse_line_items(el, txn_id)
+    lines = _parse_journal_lines(el, txn_id)
     return header, lines
+
+
+# ============================================================================
+# List entity parsers (no line items)
+# ============================================================================
+
+def parse_class(el: etree._Element) -> dict:
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "full_name": _text(el, "FullName"),
+        "is_active": _bool(el, "IsActive"),
+        "parent_list_id": _ref(el, "ParentRef", "ListID"),
+        "sublevel": _text(el, "Sublevel"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_sales_tax_code(el: etree._Element) -> dict:
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "is_active": _bool(el, "IsActive"),
+        "is_taxable": _bool(el, "IsTaxable"),
+        "description": _text(el, "Desc"),
+        "item_purchase_tax_ref": _ref(el, "ItemPurchaseTaxRef"),
+        "item_sales_tax_ref": _ref(el, "ItemSalesTaxRef"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_payment_method(el: etree._Element) -> dict:
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "is_active": _bool(el, "IsActive"),
+        "payment_method_type": _text(el, "PaymentMethodType"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_ship_method(el: etree._Element) -> dict:
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "is_active": _bool(el, "IsActive"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_terms(el: etree._Element) -> dict:
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "is_active": _bool(el, "IsActive"),
+        "is_standard_terms": True,
+        "std_due_days": _amount(el, "StdDueDays"),
+        "std_discount_days": _amount(el, "StdDiscountDays"),
+        "discount_pct": _amount(el, "DiscountPct"),
+        "day_of_month_due": _amount(el, "DayOfMonthDue"),
+        "due_next_month_days": _amount(el, "DueNextMonthDays"),
+        "discount_day_of_month": _amount(el, "DiscountDayOfMonth"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_employee(el: etree._Element) -> dict:
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "is_active": _bool(el, "IsActive"),
+        "salutation": _text(el, "Salutation"),
+        "first_name": _text(el, "FirstName"),
+        "middle_name": _text(el, "MiddleName"),
+        "last_name": _text(el, "LastName"),
+        "suffix": _text(el, "Suffix"),
+        "job_title": _text(el, "JobTitle"),
+        "address": _address(el, "EmployeeAddress"),
+        "phone": _text(el, "Phone"),
+        "mobile": _text(el, "Mobile"),
+        "email": _text(el, "Email"),
+        "employee_type": _text(el, "EmployeeType"),
+        "gender": _text(el, "Gender"),
+        "hired_date": _text(el, "HiredDate"),
+        "released_date": _text(el, "ReleasedDate"),
+        "external_guid": _text(el, "ExternalGUID"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+# ============================================================================
+# Transaction parsers (with line items)
+# ============================================================================
+
+def parse_credit_memo(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "customer_list_id": _ref(el, "CustomerRef", "ListID"),
+        "customer_name": _ref(el, "CustomerRef"),
+        "class_name": _ref(el, "ClassRef"),
+        "ar_account": _ref(el, "ARAccountRef"),
+        "memo": _text(el, "Memo"),
+        "subtotal": _amount(el, "Subtotal"),
+        "sales_tax_total": _amount(el, "SalesTaxTotal"),
+        "total_credit_remaining": _amount(el, "CreditRemaining") or _amount(el, "TotalAmount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_line_items(el, txn_id, ["CreditMemoLineRet"])
+    return header, lines
+
+
+def parse_purchase_order(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "vendor_list_id": _ref(el, "VendorRef", "ListID"),
+        "vendor_name": _ref(el, "VendorRef"),
+        "class_name": _ref(el, "ClassRef"),
+        "ship_address": _address(el, "ShipAddress"),
+        "terms": _ref(el, "TermsRef"),
+        "due_date": _text(el, "DueDate"),
+        "expected_date": _text(el, "ExpectedDate"),
+        "ship_method": _ref(el, "ShipMethodRef"),
+        "is_manually_closed": _bool(el, "IsManuallyClosed"),
+        "is_fully_received": _bool(el, "IsFullyReceived"),
+        "memo": _text(el, "Memo"),
+        "subtotal": _amount(el, "Subtotal"),
+        "total_amount": _amount(el, "TotalAmount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = []
+    seq = 0
+    for line_el in el.findall("PurchaseOrderLineRet"):
+        seq += 1
+        lines.append({
+            "txn_id": txn_id,
+            "line_seq_no": seq,
+            "item_name": _ref(line_el, "ItemRef"),
+            "item_list_id": _ref(line_el, "ItemRef", "ListID"),
+            "description": _text(line_el, "Desc"),
+            "quantity": _amount(line_el, "Quantity"),
+            "unit_price": _amount(line_el, "Rate"),
+            "amount": _amount(line_el, "Amount"),
+            "class_name": _ref(line_el, "ClassRef"),
+            "is_manually_closed": _bool(line_el, "IsManuallyClosed"),
+            "qty_received_on_items": _amount(line_el, "ReceivedQuantity"),
+        })
+    return header, lines
+
+
+def parse_estimate(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "customer_list_id": _ref(el, "CustomerRef", "ListID"),
+        "customer_name": _ref(el, "CustomerRef"),
+        "class_name": _ref(el, "ClassRef"),
+        "is_active": _bool(el, "IsActive"),
+        "estimate_state": _text(el, "EstimateState") or _text(el, "IsActive"),
+        "expiration_date": _text(el, "ExpirationDate"),
+        "memo": _text(el, "Memo"),
+        "subtotal": _amount(el, "Subtotal"),
+        "sales_tax_total": _amount(el, "SalesTaxTotal"),
+        "total_amount": _amount(el, "TotalAmount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_line_items(el, txn_id, ["EstimateLineRet"])
+    return header, lines
+
+
+def parse_sales_order(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "customer_list_id": _ref(el, "CustomerRef", "ListID"),
+        "customer_name": _ref(el, "CustomerRef"),
+        "class_name": _ref(el, "ClassRef"),
+        "is_manually_closed": _bool(el, "IsManuallyClosed"),
+        "is_fully_invoiced": _bool(el, "IsFullyInvoiced"),
+        "memo": _text(el, "Memo"),
+        "subtotal": _amount(el, "Subtotal"),
+        "total_amount": _amount(el, "TotalAmount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = []
+    seq = 0
+    for line_el in el.findall("SalesOrderLineRet"):
+        seq += 1
+        lines.append({
+            "txn_id": txn_id,
+            "line_seq_no": seq,
+            "item_name": _ref(line_el, "ItemRef"),
+            "item_list_id": _ref(line_el, "ItemRef", "ListID"),
+            "description": _text(line_el, "Desc"),
+            "quantity": _amount(line_el, "Quantity"),
+            "unit_price": _amount(line_el, "Rate"),
+            "amount": _amount(line_el, "Amount"),
+            "qty_invoiced": _amount(line_el, "Invoiced"),
+            "is_manually_closed": _bool(line_el, "IsManuallyClosed"),
+        })
+    return header, lines
+
+
+def parse_check(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "bank_account": _ref(el, "AccountRef"),
+        "entity_name": _ref(el, "PayeeEntityRef"),
+        "is_to_be_printed": _bool(el, "IsToBePrinted"),
+        "memo": _text(el, "Memo"),
+        "amount": _amount(el, "Amount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_check_expense_lines(el, txn_id)
+    return header, lines
+
+
+def parse_credit_card_charge(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "credit_card_account": _ref(el, "AccountRef"),
+        "entity_name": _ref(el, "PayeeEntityRef"),
+        "memo": _text(el, "Memo"),
+        "amount": _amount(el, "Amount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_check_expense_lines(el, txn_id)
+    return header, lines
+
+
+def parse_credit_card_credit(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "credit_card_account": _ref(el, "AccountRef"),
+        "entity_name": _ref(el, "PayeeEntityRef"),
+        "memo": _text(el, "Memo"),
+        "amount": _amount(el, "Amount"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_check_expense_lines(el, txn_id)
+    return header, lines
+
+
+def parse_vendor_credit(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "vendor_list_id": _ref(el, "VendorRef", "ListID"),
+        "vendor_name": _ref(el, "VendorRef"),
+        "ap_account": _ref(el, "APAccountRef"),
+        "amount": _amount(el, "CreditAmount") or _amount(el, "TotalAmount"),
+        "memo": _text(el, "Memo"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_vendor_credit_lines(el, txn_id)
+    return header, lines
+
+
+def parse_deposit(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_date": _text(el, "TxnDate"),
+        "deposit_to_account": _ref(el, "DepositToAccountRef"),
+        "memo": _text(el, "Memo"),
+        "total_amount": _amount(el, "DepositTotal"),
+        "cash_back_account": _ref(el, "CashBackInfoRet/AccountRef") if el.find("CashBackInfoRet") else None,
+        "cash_back_memo": _text(el, "CashBackInfoRet/Memo") if el.find("CashBackInfoRet") else None,
+        "cash_back_amount": _amount(el, "CashBackInfoRet/Amount") if el.find("CashBackInfoRet") else None,
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_deposit_lines(el, txn_id)
+    return header, lines
+
+
+def parse_inventory_adjustment(el: etree._Element) -> tuple[dict, list[dict]]:
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "account_name": _ref(el, "AccountRef"),
+        "class_name": _ref(el, "ClassRef"),
+        "memo": _text(el, "Memo"),
+        "customer_name": _ref(el, "CustomerRef"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+    lines = _parse_inventory_adjustment_lines(el, txn_id)
+    return header, lines
+
+
+# ============================================================================
+# Transaction parsers (no line items)
+# ============================================================================
+
+def parse_bill_payment(el: etree._Element) -> dict:
+    return {
+        "qb_txn_id": _text(el, "TxnID"),
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "vendor_list_id": _ref(el, "PayeeEntityRef", "ListID"),
+        "vendor_name": _ref(el, "PayeeEntityRef"),
+        "payment_method_type": "Check",
+        "bank_account": _ref(el, "BankAccountRef"),
+        "ap_account": _ref(el, "APAccountRef"),
+        "amount": _amount(el, "Amount"),
+        "memo": _text(el, "Memo"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_receive_payment(el: etree._Element) -> dict:
+    return {
+        "qb_txn_id": _text(el, "TxnID"),
+        "txn_number": _text(el, "RefNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "customer_list_id": _ref(el, "CustomerRef", "ListID"),
+        "customer_name": _ref(el, "CustomerRef"),
+        "ar_account": _ref(el, "ARAccountRef"),
+        "total_amount": _amount(el, "TotalAmount"),
+        "payment_method": _ref(el, "PaymentMethodRef"),
+        "memo": _text(el, "Memo"),
+        "deposit_to_account": _ref(el, "DepositToAccountRef"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_transfer(el: etree._Element) -> dict:
+    return {
+        "qb_txn_id": _text(el, "TxnID"),
+        "txn_date": _text(el, "TxnDate"),
+        "from_account": _ref(el, "TransferFromAccountRef"),
+        "from_amount": _amount(el, "FromAccountBalance") or _amount(el, "Amount"),
+        "to_account": _ref(el, "TransferToAccountRef"),
+        "to_amount": _amount(el, "ToAccountBalance") or _amount(el, "Amount"),
+        "memo": _text(el, "Memo"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
+def parse_time_tracking(el: etree._Element) -> dict:
+    # Parse duration: QB returns "PT8H30M" or hours as text
+    duration_text = _text(el, "Duration")
+    duration_hours = None
+    if duration_text:
+        import re as _re
+        m = _re.match(r"PT(\d+)H(\d+)M", duration_text)
+        if m:
+            duration_hours = int(m.group(1)) + int(m.group(2)) / 60.0
+        else:
+            try:
+                duration_hours = float(duration_text)
+            except (ValueError, TypeError):
+                pass
+    return {
+        "qb_txn_id": _text(el, "TxnID"),
+        "txn_date": _text(el, "TxnDate"),
+        "entity_name": _ref(el, "EntityRef"),
+        "customer_name": _ref(el, "CustomerRef"),
+        "item_service_name": _ref(el, "ItemServiceRef"),
+        "class_name": _ref(el, "ClassRef"),
+        "duration_hours": duration_hours,
+        "notes": _text(el, "Notes"),
+        "is_billable": _text(el, "BillableStatus"),
+        "billing_status": _text(el, "BillableStatus"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
 
 
 def parse_item(el: etree._Element, item_type: str) -> dict:
@@ -487,15 +1018,39 @@ ITEM_RET_TYPES = {
 }
 
 # Map Rs element names to parser functions and record structure
+# (ret_tag, parser_fn, has_lines)
 RESPONSE_PARSERS: dict[str, Any] = {
+    # List objects (no lines)
     "AccountQueryRs": ("AccountRet", parse_account, False),
+    "ClassQueryRs": ("ClassRet", parse_class, False),
+    "SalesTaxCodeQueryRs": ("SalesTaxCodeRet", parse_sales_tax_code, False),
+    "PaymentMethodQueryRs": ("PaymentMethodRet", parse_payment_method, False),
+    "ShipMethodQueryRs": ("ShipMethodRet", parse_ship_method, False),
+    "StandardTermsQueryRs": ("StandardTermsRet", parse_terms, False),
     "CustomerQueryRs": ("CustomerRet", parse_customer, False),
     "VendorQueryRs": ("VendorRet", parse_vendor, False),
+    "EmployeeQueryRs": ("EmployeeRet", parse_employee, False),
+    # Transactions with lines
     "InvoiceQueryRs": ("InvoiceRet", parse_invoice, True),
     "SalesReceiptQueryRs": ("SalesReceiptRet", parse_sales_receipt, True),
+    "CreditMemoQueryRs": ("CreditMemoRet", parse_credit_memo, True),
     "BillQueryRs": ("BillRet", parse_bill, True),
     "ItemReceiptQueryRs": ("ItemReceiptRet", parse_item_receipt, True),
+    "PurchaseOrderQueryRs": ("PurchaseOrderRet", parse_purchase_order, True),
+    "EstimateQueryRs": ("EstimateRet", parse_estimate, True),
+    "SalesOrderQueryRs": ("SalesOrderRet", parse_sales_order, True),
+    "CheckQueryRs": ("CheckRet", parse_check, True),
+    "CreditCardChargeQueryRs": ("CreditCardChargeRet", parse_credit_card_charge, True),
+    "CreditCardCreditQueryRs": ("CreditCardCreditRet", parse_credit_card_credit, True),
+    "VendorCreditQueryRs": ("VendorCreditRet", parse_vendor_credit, True),
+    "DepositQueryRs": ("DepositRet", parse_deposit, True),
+    "InventoryAdjustmentQueryRs": ("InventoryAdjustmentRet", parse_inventory_adjustment, True),
     "JournalEntryQueryRs": ("JournalEntryRet", parse_journal_entry, True),
+    # Transactions without lines
+    "BillPaymentCheckQueryRs": ("BillPaymentCheckRet", parse_bill_payment, False),
+    "ReceivePaymentQueryRs": ("ReceivePaymentRet", parse_receive_payment, False),
+    "TransferQueryRs": ("TransferRet", parse_transfer, False),
+    "TimeTrackingQueryRs": ("TimeTrackingRet", parse_time_tracking, False),
 }
 
 
