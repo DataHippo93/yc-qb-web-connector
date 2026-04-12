@@ -23,6 +23,7 @@ companies:
       - vendors
       - employees
       - items
+      - inventory_items
       - assembly_bom
       - purchase_orders
       - item_receipts
@@ -64,6 +65,7 @@ companies:
       - vendors
       - employees
       - items
+      - inventory_items
       - assembly_bom
       - purchase_orders
       - item_receipts
@@ -105,6 +107,7 @@ companies:
       - vendors
       - employees
       - items
+      - inventory_items
       - assembly_bom
       - purchase_orders
       - item_receipts
@@ -146,6 +149,7 @@ companies:
       - vendors
       - employees
       - items
+      - inventory_items
       - assembly_bom
       - purchase_orders
       - item_receipts
@@ -187,6 +191,7 @@ companies:
       - vendors
       - employees
       - items
+      - inventory_items
       - assembly_bom
       - purchase_orders
       - item_receipts

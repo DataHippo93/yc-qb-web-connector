@@ -1133,6 +1133,11 @@ def parse_qbxml_response(xml_string: str, entity_type: str) -> ParsedResponse:
                 if item_tag == "ItemInventoryAssemblyRet":
                     bom_lines.extend(_parse_assembly_bom_lines(item_el, item_dict["qb_list_id"]))
 
+    # Special handling for ItemInventoryQueryRs — inventory-only items with qty/cost fields
+    elif rs_tag == "ItemInventoryQueryRs" or entity_type == "inventory_items":
+        for item_el in rs_el.findall("ItemInventoryRet"):
+            records.append(parse_item(item_el, "Inventory"))
+
     # Special handling for ItemInventoryAssemblyQueryRs — dedicated assembly+BOM query
     elif rs_tag == "ItemInventoryAssemblyQueryRs" or entity_type == "assembly_bom":
         for item_el in rs_el.findall("ItemInventoryAssemblyRet"):

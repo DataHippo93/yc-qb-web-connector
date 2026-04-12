@@ -109,6 +109,26 @@ ERROR_RESPONSE = '''<?xml version="1.0" encoding="utf-8"?>
   </QBXMLMsgsRs>
 </QBXML>'''
 
+INVENTORY_RESPONSE = '''<?xml version="1.0" encoding="utf-8"?>
+<?qbxml version="13.0"?>
+<QBXML>
+  <QBXMLMsgsRs>
+    <ItemInventoryQueryRs requestID="1" statusCode="0" statusMessage="Status OK" iteratorRemainingCount="0">
+      <ItemInventoryRet>
+        <ListID>80000010-1234567890</ListID>
+        <TimeCreated>2024-01-15T10:00:00</TimeCreated>
+        <TimeModified>2024-03-01T14:30:00</TimeModified>
+        <EditSequence>1234567890</EditSequence>
+        <Name>Inventory Widget</Name>
+        <FullName>Inventory Widget</FullName>
+        <IsActive>true</IsActive>
+        <QuantityOnHand>42</QuantityOnHand>
+        <AverageCost>12.50</AverageCost>
+      </ItemInventoryRet>
+    </ItemInventoryQueryRs>
+  </QBXMLMsgsRs>
+</QBXML>'''
+
 
 class TestCustomerParser:
     def test_basic_parse(self):
@@ -187,6 +207,18 @@ class TestIterator:
         result = parse_qbxml_response(ITERATOR_RESPONSE, "customers")
         # When there are remaining records, has_more is True
         assert result.has_more
+
+
+class TestInventoryItemParser:
+    def test_inventory_item_parse(self):
+        result = parse_qbxml_response(INVENTORY_RESPONSE, "inventory_items")
+        assert result.is_success
+        assert len(result.records) == 1
+        item = result.records[0]
+        assert item["qb_list_id"] == "80000010-1234567890"
+        assert item["item_type"] == "Inventory"
+        assert item["quantity_on_hand"] == 42.0
+        assert item["avg_cost"] == 12.5
 
 
 class TestErrorHandling:

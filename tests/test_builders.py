@@ -117,6 +117,19 @@ class TestGenericQueryBuilder:
         assert rq is not None
         assert rq.find("MaxReturned").text == "200"
 
+    def test_inventory_items_uses_inventory_query(self):
+        xml = build_query_for_entity(
+            entity_name="inventory_items",
+            query_rq="ItemInventoryQueryRq",
+            from_modified_date="2024-06-01T00:00:00",
+            iterator_start=True,
+        )
+        root = parse_xml(xml)
+        rq = root.find(".//ItemInventoryQueryRq")
+        assert rq is not None
+        assert rq.get("iterator") == "Start"
+        assert rq.find("FromModifiedDate").text == "2024-06-01T00:00:00"
+
     def test_qbxml_header(self):
         xml = build_customer_query()
         assert '<?xml version="1.0"' in xml

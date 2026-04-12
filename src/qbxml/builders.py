@@ -362,6 +362,7 @@ QUERY_BUILDERS = {
     "customers": build_customer_query,
     "vendors": build_vendor_query,
     "items": build_item_query,
+    "inventory_items": build_generic_query,
     "assembly_bom": build_assembly_bom_query,
     "invoices": build_invoice_query,
     "item_receipts": build_item_receipt_query,
@@ -385,6 +386,17 @@ def build_query_for_entity(
     """
     builder = QUERY_BUILDERS.get(entity_name)
     if builder:
+        if entity_name == "inventory_items":
+            query_rq = "ItemInventoryQueryRq"
+            return build_generic_query(
+                query_rq=query_rq,
+                request_id=request_id,
+                from_modified_date=from_modified_date,
+                max_returned=max_returned,
+                iterator_start=iterator_start,
+                iterator_continue=iterator_continue,
+                iterator_id=iterator_id,
+            )
         return builder(
             request_id=request_id,
             from_modified_date=from_modified_date,

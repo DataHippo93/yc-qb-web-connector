@@ -34,6 +34,7 @@ ENTITY_TABLE_MAP: dict[str, tuple[str, str, bool, str | None]] = {
     "vendors":           ("vendors",            "qb_list_id", False, None),
     "employees":         ("employees",          "qb_list_id", False, None),
     "items":             ("items",              "qb_list_id", False, None),
+    "inventory_items":   ("items",              "qb_list_id", False, None),
     "assembly_bom":      ("items",              "qb_list_id", False, None),
     "sales_tax_codes":   ("sales_tax_codes",    "qb_list_id", False, None),
     "payment_methods":   ("payment_methods",    "qb_list_id", False, None),
