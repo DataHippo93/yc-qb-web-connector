@@ -341,6 +341,8 @@ CREATE TABLE IF NOT EXISTS :schema.invoice_lines (
     account_name    TEXT,
     memo            TEXT,
     service_date    DATE,
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 CREATE INDEX IF NOT EXISTS idx_invoice_lines_txn ON :schema.invoice_lines (txn_id);
@@ -385,6 +387,8 @@ CREATE TABLE IF NOT EXISTS :schema.sales_receipt_lines (
     amount          NUMERIC(15,2),
     sales_tax_code  TEXT,
     class_name      TEXT,
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -419,6 +423,8 @@ CREATE TABLE IF NOT EXISTS :schema.credit_memo_lines (
     quantity        NUMERIC(15,4),
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -458,6 +464,8 @@ CREATE TABLE IF NOT EXISTS :schema.bill_lines (
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
     class_name      TEXT,
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -507,6 +515,8 @@ CREATE TABLE IF NOT EXISTS :schema.vendor_credit_lines (
     item_name       TEXT,
     description     TEXT,
     amount          NUMERIC(15,2),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -549,6 +559,8 @@ CREATE TABLE IF NOT EXISTS :schema.purchase_order_lines (
     class_name      TEXT,
     is_manually_closed BOOLEAN,
     qty_received_on_items NUMERIC(15,4),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -585,6 +597,8 @@ CREATE TABLE IF NOT EXISTS :schema.estimate_lines (
     quantity        NUMERIC(15,4),
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -621,6 +635,8 @@ CREATE TABLE IF NOT EXISTS :schema.sales_order_lines (
     amount          NUMERIC(15,2),
     qty_invoiced    NUMERIC(15,4),
     is_manually_closed BOOLEAN,
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -700,6 +716,8 @@ CREATE TABLE IF NOT EXISTS :schema.check_lines (
     item_name       TEXT,
     description     TEXT,
     amount          NUMERIC(15,2),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -728,6 +746,8 @@ CREATE TABLE IF NOT EXISTS :schema.credit_card_charge_lines (
     item_name       TEXT,
     description     TEXT,
     amount          NUMERIC(15,2),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -756,6 +776,8 @@ CREATE TABLE IF NOT EXISTS :schema.credit_card_credit_lines (
     item_name       TEXT,
     description     TEXT,
     amount          NUMERIC(15,2),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 
@@ -832,6 +854,8 @@ CREATE TABLE IF NOT EXISTS :schema.inventory_adjustment_lines (
     value_diff      NUMERIC(15,2),
     new_quantity    NUMERIC(15,4),
     new_value       NUMERIC(15,2),
+    lot_number      TEXT,
+    serial_number   TEXT,
     UNIQUE (txn_id, line_seq_no)
 );
 

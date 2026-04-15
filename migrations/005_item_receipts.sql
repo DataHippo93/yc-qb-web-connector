@@ -31,6 +31,7 @@ CREATE TABLE IF NOT EXISTS natures_storehouse.item_receipt_lines (
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
     lot_number      TEXT,
+    serial_number   TEXT,
     expiration_date DATE,
     class_name      TEXT,
     UNIQUE (txn_id, line_seq_no)
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS adk_fragrance.item_receipt_lines (
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
     lot_number      TEXT,
+    serial_number   TEXT,
     expiration_date DATE,
     class_name      TEXT,
     UNIQUE (txn_id, line_seq_no)
@@ -97,6 +99,7 @@ CREATE TABLE IF NOT EXISTS yc_works.item_receipt_lines (
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
     lot_number      TEXT,
+    serial_number   TEXT,
     expiration_date DATE,
     class_name      TEXT,
     UNIQUE (txn_id, line_seq_no)
@@ -130,6 +133,7 @@ CREATE TABLE IF NOT EXISTS maine_and_maine.item_receipt_lines (
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
     lot_number      TEXT,
+    serial_number   TEXT,
     expiration_date DATE,
     class_name      TEXT,
     UNIQUE (txn_id, line_seq_no)
@@ -163,6 +167,7 @@ CREATE TABLE IF NOT EXISTS yc_consulting.item_receipt_lines (
     unit_price      NUMERIC(15,4),
     amount          NUMERIC(15,2),
     lot_number      TEXT,
+    serial_number   TEXT,
     expiration_date DATE,
     class_name      TEXT,
     UNIQUE (txn_id, line_seq_no)

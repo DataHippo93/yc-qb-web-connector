@@ -23,6 +23,21 @@ logger = get_logger(__name__)
 
 
 # ============================================================================
+# Request models for write endpoints
+# ============================================================================
+
+class BuildAssemblyRequest(BaseModel):
+    assembly_list_id: str = Field(..., description="QB ListID of the assembly item")
+    quantity: float = Field(..., gt=0, description="Number of assemblies to build")
+    txn_date: str | None = Field(None, description="Build date (YYYY-MM-DD)")
+    ref_number: str | None = Field(None, description="Reference/batch number")
+    memo: str | None = Field(None, description="Memo/note")
+    inventory_site_name: str | None = Field(None, description="Inventory site (Enterprise only)")
+    external_id: str | None = Field(None, description="Caller's reference ID (e.g. MakerHub batch ID)")
+    external_source: str | None = Field(None, description="Caller system name (e.g. 'makerhub')")
+
+
+# ============================================================================
 # Lifespan
 # ============================================================================
 
@@ -188,16 +203,6 @@ def create_app() -> FastAPI:
         return {"active_sessions": store.active_count()}
 
     # ---- Write queue endpoints ----
-
-    class BuildAssemblyRequest(BaseModel):
-        assembly_list_id: str = Field(..., description="QB ListID of the assembly item")
-        quantity: float = Field(..., gt=0, description="Number of assemblies to build")
-        txn_date: str | None = Field(None, description="Build date (YYYY-MM-DD)")
-        ref_number: str | None = Field(None, description="Reference/batch number")
-        memo: str | None = Field(None, description="Memo/note")
-        inventory_site_name: str | None = Field(None, description="Inventory site (Enterprise only)")
-        external_id: str | None = Field(None, description="Caller's reference ID (e.g. MakerHub batch ID)")
-        external_source: str | None = Field(None, description="Caller system name (e.g. 'makerhub')")
 
     @app.post("/write/{company_id}/build-assembly")
     async def enqueue_build_assembly(company_id: str, body: BuildAssemblyRequest):
