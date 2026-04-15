@@ -8,10 +8,11 @@ from datetime import datetime, timezone
 
 from src.qbxml.builders import build_query_for_entity
 from src.qbxml.entities import get_entities_for_company, get_entity
-from src.qbxml.parsers import parse_qbxml_response
+from src.qbxml.parsers import parse_qbxml_response, parse_write_response
 from src.soap.session import SyncSession, SyncTask
 from src.supabase.upsert import SupabaseUpserter
 from src.sync.state import SyncStateManager
+from src.sync.write_queue import WriteQueueManager
 from src.utils.config import get_settings, get_company_config
 from src.utils.logging import get_logger
 
@@ -25,9 +26,11 @@ class SyncCoordinator:
         self,
         state_manager: SyncStateManager,
         upserter: SupabaseUpserter,
+        write_queue: WriteQueueManager | None = None,
     ) -> None:
         self._state = state_manager
         self._upserter = upserter
+        self._write_queue = write_queue
         self._settings = get_settings()
         self._company_cfg = get_company_config()
 
@@ -73,7 +76,22 @@ class SyncCoordinator:
         Returns the next qbXML request string.
         Called by the SOAP handler on each sendRequestXML call.
         Returns "" when all tasks are done (signals QBWC to close).
+
+        Write queue items are dispatched BEFORE read queries — they take
+        priority so that builds are recorded promptly.
         """
+        # Check write queue before read queries (unless we're mid-iteration)
+        task = session.current_task
+        mid_iteration = task and task.iterator_id is not None
+        if (
+            self._write_queue
+            and not mid_iteration
+            and session.active_write_id is None
+        ):
+            write_xml = self._dispatch_next_write(session)
+            if write_xml:
+                return write_xml
+
         # Skip tasks already marked done
         while session.current_task and session.current_task.is_done:
             session.advance_task()
@@ -139,6 +157,10 @@ class SyncCoordinator:
         Returns progress percentage (0–100).
         Called by the SOAP handler on each receiveResponseXML call.
         """
+        # Route write responses to the write handler
+        if session.active_write_id is not None and self._write_queue:
+            return self._handle_write_response(session, response_xml)
+
         task = session.current_task
         if task is None:
             return 100
@@ -248,5 +270,69 @@ class SyncCoordinator:
                 schema=pg_schema,
             )
             session.advance_task()
+
+        return session.progress_pct
+
+    # ------------------------------------------------------------------
+    # Write queue integration
+    # ------------------------------------------------------------------
+
+    def _dispatch_next_write(self, session: SyncSession) -> str | None:
+        """
+        Claim and build the next pending write operation.
+        Returns qbXML string or None if nothing to send.
+        """
+        item = self._write_queue.claim_next(session.company_id)
+        if not item:
+            return None
+
+        request_id = f"W{item['id']}"
+        xml = self._write_queue.build_request_xml(item, request_id=request_id)
+        if xml is None:
+            self._write_queue.mark_failed(item["id"], "Unknown operation type")
+            return None
+
+        # Track the active write so handle_response can route correctly
+        session.active_write_id = item["id"]
+        self._write_queue.mark_sent(item["id"], request_id)
+
+        logger.info(
+            "write_dispatched",
+            company=session.company_id,
+            queue_id=item["id"],
+            operation=item["operation"],
+            request_id=request_id,
+        )
+        return xml
+
+    def _handle_write_response(
+        self, session: SyncSession, response_xml: str
+    ) -> int:
+        """
+        Process QB's response to a write (Add/Mod) operation.
+        Returns progress percentage.
+        """
+        queue_id = session.active_write_id
+        session.active_write_id = None  # Clear regardless of outcome
+
+        parsed = parse_write_response(response_xml)
+
+        if parsed.success:
+            self._write_queue.mark_completed(queue_id, txn_id=parsed.txn_id)
+            logger.info(
+                "write_succeeded",
+                company=session.company_id,
+                queue_id=queue_id,
+                txn_id=parsed.txn_id,
+            )
+        else:
+            error = f"QB error {parsed.status_code}: {parsed.status_message}"
+            self._write_queue.mark_failed(queue_id, error)
+            logger.error(
+                "write_failed",
+                company=session.company_id,
+                queue_id=queue_id,
+                error=error,
+            )
 
         return session.progress_pct

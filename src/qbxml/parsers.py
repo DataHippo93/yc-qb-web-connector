@@ -5,6 +5,7 @@ Parses XML response strings from QB into Python dicts ready for Supabase upsert.
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from typing import Any
 
 from lxml import etree
@@ -259,6 +260,8 @@ def _parse_line_items(txn_el: etree._Element, txn_id: str, line_tags: list[str] 
                 "class_name": _ref(line_el, "ClassRef"),
                 "memo": _text(line_el, "Memo"),
                 "service_date": _text(line_el, "ServiceDate"),
+                "lot_number": _text(line_el, "LotNumber"),
+                "serial_number": _text(line_el, "SerialNumber"),
             }
             lines.append(line)
     return lines
@@ -328,6 +331,8 @@ def _parse_check_expense_lines(txn_el: etree._Element, txn_id: str) -> list[dict
                 "item_name": _ref(line_el, "ItemRef"),
                 "description": _text(line_el, "Desc") or _text(line_el, "Memo"),
                 "amount": _amount(line_el, "Amount"),
+                "lot_number": _text(line_el, "LotNumber"),
+                "serial_number": _text(line_el, "SerialNumber"),
             })
     return lines
 
@@ -350,6 +355,8 @@ def _parse_vendor_credit_lines(txn_el: etree._Element, txn_id: str) -> list[dict
                 "item_name": _ref(line_el, "ItemRef"),
                 "description": _text(line_el, "Desc") or _text(line_el, "Memo"),
                 "amount": _amount(line_el, "Amount"),
+                "lot_number": _text(line_el, "LotNumber"),
+                "serial_number": _text(line_el, "SerialNumber"),
             })
     return lines
 
@@ -373,6 +380,8 @@ def _parse_inventory_adjustment_lines(txn_el: etree._Element, txn_id: str) -> li
             "value_diff": _amount(line_el, "ValueDifference"),
             "new_quantity": _amount(line_el, "QuantityNew"),
             "new_value": _amount(line_el, "ValueNew"),
+            "lot_number": _text(line_el, "LotNumber"),
+            "serial_number": _text(line_el, "SerialNumber"),
         })
     return lines
 
@@ -497,6 +506,7 @@ def parse_item_receipt(el: etree._Element) -> tuple[dict, list[dict]]:
                 "unit_price": _amount(line_el, "Cost") or _amount(line_el, "UnitPrice"),
                 "amount": _amount(line_el, "Amount"),
                 "lot_number": _text(line_el, "LotNumber"),
+                "serial_number": _text(line_el, "SerialNumber"),
                 "expiration_date": _text(line_el, "ExpirationDateForLot"),
                 "class_name": _ref(line_el, "ClassRef"),
             }
@@ -1192,3 +1202,102 @@ def _element_to_dict(el: etree._Element) -> dict:
         else:
             result[key] = child.text
     return result
+
+
+# ============================================================================
+# Write response parsers
+# ============================================================================
+
+@dataclass
+class WriteResponse:
+    """Result of parsing a qbXML write (Add/Mod) response."""
+    success: bool
+    status_code: int
+    status_message: str
+    request_id: str | None
+    txn_id: str | None = None
+    txn_number: str | None = None
+    edit_sequence: str | None = None
+
+
+def parse_write_response(xml_string: str) -> WriteResponse:
+    """
+    Parse a qbXML Add/Mod response (e.g. BuildAssemblyAddRs).
+
+    Returns a WriteResponse with success/failure and the created TxnID.
+    """
+    if not xml_string or not xml_string.strip():
+        return WriteResponse(
+            success=False, status_code=-1,
+            status_message="Empty response", request_id=None,
+        )
+
+    try:
+        root = etree.fromstring(
+            xml_string.encode("utf-8") if isinstance(xml_string, str) else xml_string
+        )
+    except etree.XMLSyntaxError as e:
+        return WriteResponse(
+            success=False, status_code=-1,
+            status_message=f"XML parse error: {e}", request_id=None,
+        )
+
+    msgs_rs = root.find("QBXMLMsgsRs")
+    if msgs_rs is None:
+        return WriteResponse(
+            success=False, status_code=-1,
+            status_message="No QBXMLMsgsRs", request_id=None,
+        )
+
+    # Find the *AddRs or *ModRs element
+    rs_el = None
+    for child in msgs_rs:
+        if child.tag.endswith("AddRs") or child.tag.endswith("ModRs"):
+            rs_el = child
+            break
+
+    if rs_el is None:
+        return WriteResponse(
+            success=False, status_code=-1,
+            status_message="No Add/Mod response element found", request_id=None,
+        )
+
+    status_code = int(rs_el.get("statusCode", "-1"))
+    status_message = rs_el.get("statusMessage", "")
+    request_id = rs_el.get("requestID")
+
+    if status_code != 0:
+        logger.warning(
+            "write_response_error",
+            status_code=status_code,
+            message=status_message,
+        )
+        return WriteResponse(
+            success=False, status_code=status_code,
+            status_message=status_message, request_id=request_id,
+        )
+
+    # Extract the Ret element (e.g. BuildAssemblyRet)
+    ret_el = None
+    for child in rs_el:
+        if child.tag.endswith("Ret"):
+            ret_el = child
+            break
+
+    txn_id = None
+    txn_number = None
+    edit_sequence = None
+    if ret_el is not None:
+        txn_id = _text(ret_el, "TxnID")
+        txn_number = _text(ret_el, "RefNumber")
+        edit_sequence = _text(ret_el, "EditSequence")
+
+    return WriteResponse(
+        success=True,
+        status_code=0,
+        status_message=status_message,
+        request_id=request_id,
+        txn_id=txn_id,
+        txn_number=txn_number,
+        edit_sequence=edit_sequence,
+    )

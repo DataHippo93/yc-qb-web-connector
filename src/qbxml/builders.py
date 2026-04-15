@@ -337,6 +337,53 @@ def build_item_receipt_query(
     return _build_qbxml_envelope(rq)
 
 
+def build_build_assembly_add(
+    assembly_list_id: str,
+    quantity: float,
+    txn_date: str | None = None,
+    ref_number: str | None = None,
+    memo: str | None = None,
+    inventory_site_name: str | None = None,
+    request_id: str = "1",
+) -> str:
+    """
+    Build a BuildAssemblyAddRq to record an assembly build in QuickBooks.
+
+    Args:
+        assembly_list_id: The ListID of the assembly item to build
+        quantity: Number of assemblies to build (the yield)
+        txn_date: Date of the build (YYYY-MM-DD). Defaults to today in QB.
+        ref_number: Optional reference/batch number
+        memo: Optional memo/note
+        inventory_site_name: Optional inventory site (QB Enterprise only)
+        request_id: Request ID for the qbXML envelope
+    """
+    rq = Element("BuildAssemblyAddRq", requestID=request_id)
+    add = SubElement(rq, "BuildAssemblyAdd")
+
+    # Assembly item reference (required)
+    item_ref = SubElement(add, "ItemInventoryAssemblyRef")
+    SubElement(item_ref, "ListID").text = assembly_list_id
+
+    if txn_date:
+        SubElement(add, "TxnDate").text = txn_date
+
+    if ref_number:
+        SubElement(add, "RefNumber").text = ref_number
+
+    if memo:
+        SubElement(add, "Memo").text = memo
+
+    # QuantityToBuild is required
+    SubElement(add, "QuantityToBuild").text = str(quantity)
+
+    if inventory_site_name:
+        site_ref = SubElement(add, "InventorySiteRef")
+        SubElement(site_ref, "FullName").text = inventory_site_name
+
+    return _build_qbxml_envelope(rq)
+
+
 def build_company_query(request_id: str = "1") -> str:
     """Retrieve company info (no filter needed)."""
     rq = Element("CompanyQueryRq", requestID=request_id)

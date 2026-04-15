@@ -23,6 +23,7 @@ from src.supabase.client import get_supabase_client
 from src.supabase.upsert import SupabaseUpserter
 from src.sync.coordinator import SyncCoordinator
 from src.sync.state import SyncStateManager
+from src.sync.write_queue import WriteQueueManager
 from src.utils.config import get_settings, get_company_config, company_id_from_ticket_or_file
 from src.utils.logging import get_logger
 
@@ -46,7 +47,8 @@ def _make_coordinator() -> SyncCoordinator:
     client = get_supabase_client()
     state = SyncStateManager(client)
     upserter = SupabaseUpserter(client)
-    return SyncCoordinator(state, upserter)
+    write_queue = WriteQueueManager(client)
+    return SyncCoordinator(state, upserter, write_queue=write_queue)
 
 
 # ============================================================================

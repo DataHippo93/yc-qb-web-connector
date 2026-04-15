@@ -8,12 +8,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from src.soap.service import handle_soap_request, get_wsdl
 from src.soap.session import get_session_store
 from src.supabase.client import get_supabase_client
 from src.supabase.upsert import MetaUpserter
 from src.sync.state import SyncStateManager
+from src.sync.write_queue import WriteQueueManager
 from src.utils.config import get_settings, get_company_config
 from src.utils.logging import configure_logging, get_logger
 
@@ -184,6 +186,79 @@ def create_app() -> FastAPI:
         """Active QBWC sessions (for debugging)."""
         store = get_session_store()
         return {"active_sessions": store.active_count()}
+
+    # ---- Write queue endpoints ----
+
+    class BuildAssemblyRequest(BaseModel):
+        assembly_list_id: str = Field(..., description="QB ListID of the assembly item")
+        quantity: float = Field(..., gt=0, description="Number of assemblies to build")
+        txn_date: str | None = Field(None, description="Build date (YYYY-MM-DD)")
+        ref_number: str | None = Field(None, description="Reference/batch number")
+        memo: str | None = Field(None, description="Memo/note")
+        inventory_site_name: str | None = Field(None, description="Inventory site (Enterprise only)")
+        external_id: str | None = Field(None, description="Caller's reference ID (e.g. MakerHub batch ID)")
+        external_source: str | None = Field(None, description="Caller system name (e.g. 'makerhub')")
+
+    @app.post("/write/{company_id}/build-assembly")
+    async def enqueue_build_assembly(company_id: str, body: BuildAssemblyRequest):
+        """
+        Enqueue a BuildAssembly operation to be sent to QuickBooks
+        on the next QBWC sync cycle.
+        """
+        company_cfg = get_company_config()
+        try:
+            company_cfg.get(company_id)
+        except KeyError:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Unknown company: {company_id}"},
+            )
+
+        client = get_supabase_client()
+        wq = WriteQueueManager(client)
+        row = wq.enqueue_build_assembly(
+            company_id=company_id,
+            assembly_list_id=body.assembly_list_id,
+            quantity=body.quantity,
+            txn_date=body.txn_date,
+            ref_number=body.ref_number,
+            memo=body.memo,
+            inventory_site_name=body.inventory_site_name,
+            external_id=body.external_id,
+            external_source=body.external_source,
+        )
+
+        return {
+            "status": "queued",
+            "queue_id": row.get("id"),
+            "message": "BuildAssembly will be sent on next QBWC sync cycle",
+        }
+
+    @app.get("/write/{company_id}/status")
+    async def write_queue_status(company_id: str):
+        """Get pending write queue count for a company."""
+        company_cfg = get_company_config()
+        try:
+            company_cfg.get(company_id)
+        except KeyError:
+            return JSONResponse(
+                status_code=404,
+                content={"error": f"Unknown company: {company_id}"},
+            )
+
+        client = get_supabase_client()
+        wq = WriteQueueManager(client)
+        return {"company_id": company_id, "pending_writes": wq.get_pending_count(company_id)}
+
+    @app.get("/write/queue/{queue_id}")
+    async def write_queue_item(queue_id: int):
+        """Get status of a specific write queue item."""
+        client = get_supabase_client()
+        wq = WriteQueueManager(client)
+        item = wq.get_by_id(queue_id)
+        if not item:
+            return JSONResponse(status_code=404, content={"error": "Queue item not found"})
+        return item
 
     return app
 

@@ -70,6 +70,8 @@ class SyncSession:
     total_records_synced: int = 0
     # State machine
     status: str = "active"  # active | done | error | closing
+    # Active write operation (if any) — queue item ID being processed
+    active_write_id: int | None = None
 
     def touch(self) -> None:
         self.last_activity = datetime.now(timezone.utc)
@@ -122,6 +124,7 @@ class SyncSession:
             "errors": json.dumps(self.errors),
             "total_records_synced": self.total_records_synced,
             "status": self.status,
+            "active_write_id": self.active_write_id,
             "last_activity": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -160,6 +163,7 @@ class SyncSession:
             errors=errors_data,
             total_records_synced=row.get("total_records_synced", 0),
             status=row.get("status", "active"),
+            active_write_id=row.get("active_write_id"),
         )
 
 
