@@ -343,6 +343,7 @@ def build_build_assembly_add(
     txn_date: str | None = None,
     ref_number: str | None = None,
     memo: str | None = None,
+    mark_pending_if_required: bool = False,
     inventory_site_name: str | None = None,
     request_id: str = "1",
 ) -> str:
@@ -373,6 +374,10 @@ def build_build_assembly_add(
 
     if memo:
         SubElement(add, "Memo").text = memo
+
+    # MarkPendingIfRequired — allow build even when components are short
+    if mark_pending_if_required:
+        SubElement(add, "MarkPendingIfRequired").text = "true"
 
     # QuantityToBuild is required
     SubElement(add, "QuantityToBuild").text = str(quantity)

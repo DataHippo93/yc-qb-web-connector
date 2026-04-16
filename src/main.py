@@ -32,6 +32,7 @@ class BuildAssemblyRequest(BaseModel):
     txn_date: str | None = Field(None, description="Build date (YYYY-MM-DD)")
     ref_number: str | None = Field(None, description="Reference/batch number")
     memo: str | None = Field(None, description="Memo/note")
+    mark_pending_if_required: bool = Field(False, description="Allow build even when components are short (marks as pending in QB)")
     inventory_site_name: str | None = Field(None, description="Inventory site (Enterprise only)")
     external_id: str | None = Field(None, description="Caller's reference ID (e.g. MakerHub batch ID)")
     external_source: str | None = Field(None, description="Caller system name (e.g. 'makerhub')")
@@ -228,6 +229,7 @@ def create_app() -> FastAPI:
             txn_date=body.txn_date,
             ref_number=body.ref_number,
             memo=body.memo,
+            mark_pending_if_required=body.mark_pending_if_required,
             inventory_site_name=body.inventory_site_name,
             external_id=body.external_id,
             external_source=body.external_source,

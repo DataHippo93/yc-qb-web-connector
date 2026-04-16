@@ -43,6 +43,7 @@ class WriteQueueManager:
         txn_date: str | None = None,
         ref_number: str | None = None,
         memo: str | None = None,
+        mark_pending_if_required: bool = False,
         inventory_site_name: str | None = None,
         external_id: str | None = None,
         external_source: str | None = None,
@@ -62,6 +63,8 @@ class WriteQueueManager:
             payload["ref_number"] = ref_number
         if memo:
             payload["memo"] = memo
+        if mark_pending_if_required:
+            payload["mark_pending_if_required"] = True
         if inventory_site_name:
             payload["inventory_site_name"] = inventory_site_name
 
@@ -210,6 +213,7 @@ class WriteQueueManager:
                 txn_date=payload.get("txn_date"),
                 ref_number=payload.get("ref_number"),
                 memo=payload.get("memo"),
+                mark_pending_if_required=payload.get("mark_pending_if_required", False),
                 inventory_site_name=payload.get("inventory_site_name"),
                 request_id=request_id,
             )
