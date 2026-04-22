@@ -32,7 +32,11 @@ class BuildAssemblyRequest(BaseModel):
     txn_date: str | None = Field(None, description="Build date (YYYY-MM-DD)")
     ref_number: str | None = Field(None, description="Reference/batch number")
     memo: str | None = Field(None, description="Memo/note")
-    mark_pending_if_required: bool = Field(False, description="Allow build even when components are short (marks as pending in QB)")
+    mark_pending_if_required: bool = Field(
+        False,
+        description="Allow build even when components are short — QB marks it as a pending "
+        "build that can be finalized later. Maps to <MarkPendingIfRequired>true</MarkPendingIfRequired>.",
+    )
     inventory_site_name: str | None = Field(None, description="Inventory site (Enterprise only)")
     external_id: str | None = Field(None, description="Caller's reference ID (e.g. MakerHub batch ID)")
     external_source: str | None = Field(None, description="Caller system name (e.g. 'makerhub')")

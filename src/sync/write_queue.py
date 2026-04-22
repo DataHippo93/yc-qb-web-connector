@@ -51,6 +51,12 @@ class WriteQueueManager:
         """
         Enqueue a BuildAssembly operation.
 
+        When `mark_pending_if_required=True`, the qbXML request includes
+        <MarkPendingIfRequired>true</MarkPendingIfRequired>, so QB records the
+        build as pending when any component is short (instead of returning
+        error 3370). The response's <IsPending> flag is surfaced back through
+        the queue row's `is_pending` column on completion.
+
         Returns the created queue row.
         """
         payload = {
@@ -149,15 +155,32 @@ class WriteQueueManager:
         }).eq("id", queue_id).execute()
 
     def mark_completed(
-        self, queue_id: int, txn_id: str | None = None
+        self,
+        queue_id: int,
+        txn_id: str | None = None,
+        is_pending: bool | None = None,
     ) -> None:
-        """Mark a sent item as completed (QB confirmed success)."""
-        self._table().update({
+        """Mark a sent item as completed (QB confirmed success).
+
+        `is_pending` is the `<IsPending>` value QB returned on a BuildAssembly
+        response — True means QB recorded the build as pending because one or
+        more components were short. Callers (e.g. MakerHub) can surface this
+        in their UI to prompt the operator to finalize the build later.
+        """
+        update: dict[str, Any] = {
             "status": "completed",
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "qb_txn_id": txn_id,
-        }).eq("id", queue_id).execute()
-        logger.info("write_completed", queue_id=queue_id, txn_id=txn_id)
+        }
+        if is_pending is not None:
+            update["is_pending"] = is_pending
+        self._table().update(update).eq("id", queue_id).execute()
+        logger.info(
+            "write_completed",
+            queue_id=queue_id,
+            txn_id=txn_id,
+            is_pending=is_pending,
+        )
 
     def mark_failed(self, queue_id: int, error: str) -> None:
         """
@@ -213,7 +236,9 @@ class WriteQueueManager:
                 txn_date=payload.get("txn_date"),
                 ref_number=payload.get("ref_number"),
                 memo=payload.get("memo"),
-                mark_pending_if_required=payload.get("mark_pending_if_required", False),
+                mark_pending_if_required=bool(
+                    payload.get("mark_pending_if_required", False)
+                ),
                 inventory_site_name=payload.get("inventory_site_name"),
                 request_id=request_id,
             )

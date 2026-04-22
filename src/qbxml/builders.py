@@ -356,8 +356,16 @@ def build_build_assembly_add(
         txn_date: Date of the build (YYYY-MM-DD). Defaults to today in QB.
         ref_number: Optional reference/batch number
         memo: Optional memo/note
+        mark_pending_if_required: If True, emits <MarkPendingIfRequired>true</MarkPendingIfRequired>
+            so QB records the build as pending when one or more components are short
+            (instead of failing with error 3370). Response <IsPending> tells the caller
+            whether QB ended up marking it pending.
         inventory_site_name: Optional inventory site (QB Enterprise only)
         request_id: Request ID for the qbXML envelope
+
+    XML element ordering follows the qbXML schema: ItemRef, TxnDate, RefNumber,
+    InventorySiteRef, Memo, MarkPendingIfRequired, QuantityToBuild. Some elements
+    must be emitted before QuantityToBuild per the DTD.
     """
     rq = Element("BuildAssemblyAddRq", requestID=request_id)
     add = SubElement(rq, "BuildAssemblyAdd")
@@ -372,19 +380,19 @@ def build_build_assembly_add(
     if ref_number:
         SubElement(add, "RefNumber").text = ref_number
 
+    if inventory_site_name:
+        site_ref = SubElement(add, "InventorySiteRef")
+        SubElement(site_ref, "FullName").text = inventory_site_name
+
     if memo:
         SubElement(add, "Memo").text = memo
 
-    # MarkPendingIfRequired — allow build even when components are short
+    # MarkPendingIfRequired must come before QuantityToBuild per the qbXML schema.
     if mark_pending_if_required:
         SubElement(add, "MarkPendingIfRequired").text = "true"
 
     # QuantityToBuild is required
     SubElement(add, "QuantityToBuild").text = str(quantity)
-
-    if inventory_site_name:
-        site_ref = SubElement(add, "InventorySiteRef")
-        SubElement(site_ref, "FullName").text = inventory_site_name
 
     return _build_qbxml_envelope(rq)
 

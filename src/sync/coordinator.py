@@ -318,12 +318,17 @@ class SyncCoordinator:
         parsed = parse_write_response(response_xml)
 
         if parsed.success:
-            self._write_queue.mark_completed(queue_id, txn_id=parsed.txn_id)
+            self._write_queue.mark_completed(
+                queue_id,
+                txn_id=parsed.txn_id,
+                is_pending=parsed.is_pending,
+            )
             logger.info(
                 "write_succeeded",
                 company=session.company_id,
                 queue_id=queue_id,
                 txn_id=parsed.txn_id,
+                is_pending=parsed.is_pending,
             )
         else:
             error = f"QB error {parsed.status_code}: {parsed.status_message}"

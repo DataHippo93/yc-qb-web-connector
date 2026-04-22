@@ -1218,6 +1218,11 @@ class WriteResponse:
     txn_id: str | None = None
     txn_number: str | None = None
     edit_sequence: str | None = None
+    # For BuildAssemblyAdd: QB sets <IsPending>true</IsPending> when the build
+    # was recorded as pending (e.g. because <MarkPendingIfRequired>true</...>
+    # was sent and one or more components were short). None when the response
+    # didn't include IsPending (e.g. non-build-assembly operations).
+    is_pending: bool | None = None
 
 
 def parse_write_response(xml_string: str) -> WriteResponse:
@@ -1287,10 +1292,12 @@ def parse_write_response(xml_string: str) -> WriteResponse:
     txn_id = None
     txn_number = None
     edit_sequence = None
+    is_pending = None
     if ret_el is not None:
         txn_id = _text(ret_el, "TxnID")
         txn_number = _text(ret_el, "RefNumber")
         edit_sequence = _text(ret_el, "EditSequence")
+        is_pending = _bool(ret_el, "IsPending")
 
     return WriteResponse(
         success=True,
@@ -1300,4 +1307,5 @@ def parse_write_response(xml_string: str) -> WriteResponse:
         txn_id=txn_id,
         txn_number=txn_number,
         edit_sequence=edit_sequence,
+        is_pending=is_pending,
     )
