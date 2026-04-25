@@ -232,7 +232,19 @@ def _handle_receive_response_xml(method_el: etree._Element) -> bytes:
         error_msg = f"QB COM error {hresult}: {message}"
         logger.error("qb_com_error", ticket=ticket, hresult=hresult, message=message, company=session.company_id)
         session.errors.append(error_msg)
-        if session.current_task:
+        # If a write is in flight, attribute the COM error to it — otherwise
+        # active_write_id stays set and we end up dispatching a read on the
+        # next sendRequestXML while the write_queue row sits at status='sent'
+        # forever.
+        if session.active_write_id is not None:
+            try:
+                from src.sync.write_queue import WriteQueueManager
+                write_queue = WriteQueueManager(get_supabase_client())
+                write_queue.mark_failed(session.active_write_id, error_msg)
+            except Exception as e:
+                logger.error("write_queue_mark_failed_err", error=str(e), queue_id=session.active_write_id)
+            session.active_write_id = None
+        elif session.current_task:
             state_mgr = SyncStateManager(get_supabase_client())
             state_mgr.mark_error(session.company_id, session.current_task.entity_type, error_msg)
             session.current_task.completed_at = datetime.now(timezone.utc).isoformat()

@@ -363,9 +363,12 @@ def build_build_assembly_add(
         inventory_site_name: Optional inventory site (QB Enterprise only)
         request_id: Request ID for the qbXML envelope
 
-    XML element ordering follows the qbXML schema: ItemRef, TxnDate, RefNumber,
-    InventorySiteRef, Memo, MarkPendingIfRequired, QuantityToBuild. Some elements
-    must be emitted before QuantityToBuild per the DTD.
+    XML element ordering follows the qbXML 13.0 schema for BuildAssemblyAdd:
+    ItemInventoryAssemblyRef, TxnDate, RefNumber, InventorySiteRef, Memo,
+    QuantityToBuild, MarkPendingIfRequired. The previous (972dd18) ordering
+    placed MarkPendingIfRequired before QuantityToBuild, which caused QB to
+    reject the request at the COM/schema layer and the response was lost
+    (no qbXML response was returned to the connector).
     """
     rq = Element("BuildAssemblyAddRq", requestID=request_id)
     add = SubElement(rq, "BuildAssemblyAdd")
@@ -387,12 +390,12 @@ def build_build_assembly_add(
     if memo:
         SubElement(add, "Memo").text = memo
 
-    # MarkPendingIfRequired must come before QuantityToBuild per the qbXML schema.
-    if mark_pending_if_required:
-        SubElement(add, "MarkPendingIfRequired").text = "true"
-
     # QuantityToBuild is required
     SubElement(add, "QuantityToBuild").text = str(quantity)
+
+    # MarkPendingIfRequired comes after QuantityToBuild per the qbXML 13.0 schema.
+    if mark_pending_if_required:
+        SubElement(add, "MarkPendingIfRequired").text = "true"
 
     return _build_qbxml_envelope(rq)
 
