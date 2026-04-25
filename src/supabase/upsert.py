@@ -40,6 +40,8 @@ ENTITY_TABLE_MAP: dict[str, tuple[str, str, bool, str | None]] = {
     "payment_methods":   ("payment_methods",    "qb_list_id", False, None),
     "ship_methods":      ("ship_methods",       "qb_list_id", False, None),
     "terms":             ("terms",              "qb_list_id", False, None),
+    # UoM Sets denormalize into (set, unit) rows. Composite PK passed as comma-separated.
+    "unit_of_measure_sets": ("unit_of_measure_sets", "qb_list_id,unit_name", False, None),
     # Transactions with line items
     "invoices":          ("invoices",           "qb_txn_id",  True,  "invoice_lines"),
     "sales_receipts":    ("sales_receipts",     "qb_txn_id",  True,  "sales_receipt_lines"),
@@ -145,11 +147,16 @@ class SupabaseUpserter:
             for r in records:
                 r["synced_at"] = now
 
+            # Support composite primary keys via comma-separated pk_col strings,
+            # e.g. "qb_list_id,unit_name" for unit_of_measure_sets.
+            conflict_cols = (
+                [c.strip() for c in pk_col.split(",")] if "," in pk_col else [pk_col]
+            )
             return self._upsert_batch(
                 schema=pg_schema,
                 table=table_name,
                 records=records,
-                conflict_cols=[pk_col],
+                conflict_cols=conflict_cols,
             )
 
     def upsert_bom_lines(self, pg_schema: str, bom_lines: list[dict]) -> int:

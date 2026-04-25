@@ -19,6 +19,7 @@ companies:
       - payment_methods
       - ship_methods
       - terms
+      - unit_of_measure_sets
       - customers
       - vendors
       - employees
@@ -61,6 +62,7 @@ companies:
       - payment_methods
       - ship_methods
       - terms
+      - unit_of_measure_sets
       - customers
       - vendors
       - employees
@@ -103,6 +105,7 @@ companies:
       - payment_methods
       - ship_methods
       - terms
+      - unit_of_measure_sets
       - customers
       - vendors
       - employees
@@ -145,6 +148,7 @@ companies:
       - payment_methods
       - ship_methods
       - terms
+      - unit_of_measure_sets
       - customers
       - vendors
       - employees
@@ -187,6 +191,7 @@ companies:
       - payment_methods
       - ship_methods
       - terms
+      - unit_of_measure_sets
       - customers
       - vendors
       - employees

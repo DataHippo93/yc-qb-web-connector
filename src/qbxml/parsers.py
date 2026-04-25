@@ -534,6 +534,66 @@ def parse_journal_entry(el: etree._Element) -> tuple[dict, list[dict]]:
 # List entity parsers (no line items)
 # ============================================================================
 
+def parse_unit_of_measure_set(el: etree._Element) -> list[dict]:
+    """Flatten a UnitOfMeasureSetRet into one row per unit.
+
+    QB returns a Set with a BaseUnit + multiple RelatedUnit rows + DefaultUnit
+    role mappings. We denormalize so each unit (base or related) becomes one
+    row, with conversion_ratio measured in base units per 1 of this unit.
+    Base unit gets NULL conversion_ratio (it is 1 by definition).
+    """
+    list_id = _text(el, "ListID")
+    set_name = _text(el, "Name")
+    set_type = _text(el, "UnitOfMeasureType")
+    is_active = _bool(el, "IsActive")
+    time_created = _text(el, "TimeCreated")
+    time_modified = _text(el, "TimeModified")
+    edit_sequence = _text(el, "EditSequence")
+
+    default_for_by_unit: dict[str, str] = {}
+    for du in el.findall("DefaultUnit"):
+        unit_name = _text(du, "Unit")
+        used_for = _text(du, "UnitUsedFor")
+        if unit_name and used_for:
+            default_for_by_unit[unit_name] = used_for
+
+    rows: list[dict] = []
+    base = el.find("BaseUnit")
+    if base is not None:
+        bn = _text(base, "Name")
+        rows.append({
+            "qb_list_id": list_id,
+            "set_name": set_name,
+            "unit_of_measure_type": set_type,
+            "is_active": is_active,
+            "unit_name": bn,
+            "unit_abbreviation": _text(base, "Abbreviation"),
+            "is_base_unit": True,
+            "conversion_ratio": None,
+            "default_for": default_for_by_unit.get(bn or ""),
+            "time_created": time_created,
+            "time_modified": time_modified,
+            "edit_sequence": edit_sequence,
+        })
+    for related in el.findall("RelatedUnit"):
+        rn = _text(related, "Name")
+        rows.append({
+            "qb_list_id": list_id,
+            "set_name": set_name,
+            "unit_of_measure_type": set_type,
+            "is_active": is_active,
+            "unit_name": rn,
+            "unit_abbreviation": _text(related, "Abbreviation"),
+            "is_base_unit": False,
+            "conversion_ratio": _amount(related, "ConversionRatio"),
+            "default_for": default_for_by_unit.get(rn or ""),
+            "time_created": time_created,
+            "time_modified": time_modified,
+            "edit_sequence": edit_sequence,
+        })
+    return rows
+
+
 def parse_class(el: etree._Element) -> dict:
     return {
         "qb_list_id": _text(el, "ListID"),
@@ -1154,6 +1214,12 @@ def parse_qbxml_response(xml_string: str, entity_type: str) -> ParsedResponse:
             item_dict = parse_item(item_el, "InventoryAssembly")
             records.append(item_dict)
             bom_lines.extend(_parse_assembly_bom_lines(item_el, item_dict["qb_list_id"]))
+
+    # UoM sets: each Set fans out into multiple rows (one per unit). The
+    # upserter treats the resulting list of dicts as ordinary records.
+    elif rs_tag == "UnitOfMeasureSetQueryRs" or entity_type == "unit_of_measure_sets":
+        for set_el in rs_el.findall("UnitOfMeasureSetRet"):
+            records.extend(parse_unit_of_measure_set(set_el))
 
     # Specific parsers
     elif rs_tag in RESPONSE_PARSERS:
