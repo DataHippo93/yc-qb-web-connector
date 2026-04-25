@@ -1231,6 +1231,13 @@ def parse_write_response(xml_string: str) -> WriteResponse:
 
     Returns a WriteResponse with success/failure and the created TxnID.
     """
+    # Truncated copy of the raw response we can embed in status_message when
+    # the response shape doesn't match what we expect — without it, all we
+    # know is "parse failed" and there's no way to diagnose post-hoc.
+    raw_preview = (
+        xml_string[:3000] if isinstance(xml_string, str) else xml_string.decode("utf-8", "replace")[:3000]
+    ) if xml_string else ""
+
     if not xml_string or not xml_string.strip():
         return WriteResponse(
             success=False, status_code=-1,
@@ -1244,14 +1251,14 @@ def parse_write_response(xml_string: str) -> WriteResponse:
     except etree.XMLSyntaxError as e:
         return WriteResponse(
             success=False, status_code=-1,
-            status_message=f"XML parse error: {e}", request_id=None,
+            status_message=f"XML parse error: {e} | RAW: {raw_preview}", request_id=None,
         )
 
     msgs_rs = root.find("QBXMLMsgsRs")
     if msgs_rs is None:
         return WriteResponse(
             success=False, status_code=-1,
-            status_message="No QBXMLMsgsRs", request_id=None,
+            status_message=f"No QBXMLMsgsRs | RAW: {raw_preview}", request_id=None,
         )
 
     # Find the *AddRs or *ModRs element
@@ -1262,9 +1269,15 @@ def parse_write_response(xml_string: str) -> WriteResponse:
             break
 
     if rs_el is None:
+        # Capture the immediate children's tag names + the raw XML for diagnosis.
+        child_tags = [str(c.tag) for c in msgs_rs]
         return WriteResponse(
             success=False, status_code=-1,
-            status_message="No Add/Mod response element found", request_id=None,
+            status_message=(
+                f"No Add/Mod response element found | "
+                f"QBXMLMsgsRs children={child_tags} | RAW: {raw_preview}"
+            ),
+            request_id=None,
         )
 
     status_code = int(rs_el.get("statusCode", "-1"))
