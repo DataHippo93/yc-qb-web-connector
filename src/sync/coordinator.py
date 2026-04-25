@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from lxml import etree
+
 from src.qbxml.builders import build_query_for_entity
 from src.qbxml.entities import get_entities_for_company, get_entity
 from src.qbxml.parsers import parse_qbxml_response, parse_write_response
@@ -17,6 +19,35 @@ from src.utils.config import get_settings, get_company_config
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _looks_like_write_response(response_xml: str) -> bool:
+    """Return True if the qbXML response is shaped like an Add/Mod result.
+
+    Used to route receiveResponseXML payloads. Read responses (anything ending
+    in QueryRs, plus iterator continuations) must NOT be routed to the write
+    handler even if session.active_write_id is set — otherwise a read response
+    delivered while a write was in flight will be parsed as a write, fail,
+    and the actual read data will be lost.
+    """
+    if not response_xml or not response_xml.strip():
+        return False
+    try:
+        root = etree.fromstring(
+            response_xml.encode("utf-8") if isinstance(response_xml, str) else response_xml
+        )
+    except etree.XMLSyntaxError:
+        return False
+    msgs_rs = root.find("QBXMLMsgsRs")
+    if msgs_rs is None:
+        return False
+    for child in msgs_rs:
+        tag = str(child.tag)
+        if tag.endswith("AddRs") or tag.endswith("ModRs") or tag.endswith("DelRs"):
+            return True
+        if tag.endswith("QueryRs") or tag.endswith("ReportQueryRs"):
+            return False
+    return False
 
 
 class SyncCoordinator:
@@ -80,6 +111,29 @@ class SyncCoordinator:
         Write queue items are dispatched BEFORE read queries — they take
         priority so that builds are recorded promptly.
         """
+        # If a write is in flight (active_write_id set) we've lost track of its
+        # response — handle_response either never fired, or fired with a non-
+        # write-shaped XML (in which case it's already been routed to the read
+        # handler by the content-based router below). Mark the orphaned write
+        # as failed so we don't dispatch a *read* while QBWC is expecting us
+        # to consume the write's response next, and so we don't infinite-loop
+        # claiming the same row.
+        if session.active_write_id is not None and self._write_queue:
+            orphan_id = session.active_write_id
+            logger.warning(
+                "orphaned_active_write",
+                queue_id=orphan_id,
+                ticket=session.ticket,
+                company=session.company_id,
+                current_task_index=session.current_task_index,
+            )
+            self._write_queue.mark_failed(
+                orphan_id,
+                "Write response not received before next sendRequestXML — "
+                "orphaned active_write_id; will retry on next session",
+            )
+            session.active_write_id = None
+
         # Check write queue before read queries (unless we're mid-iteration)
         task = session.current_task
         mid_iteration = task and task.iterator_id is not None
@@ -157,9 +211,41 @@ class SyncCoordinator:
         Returns progress percentage (0–100).
         Called by the SOAP handler on each receiveResponseXML call.
         """
-        # Route write responses to the write handler
-        if session.active_write_id is not None and self._write_queue:
+        # Route by response *shape*, not just by active_write_id. A read response
+        # delivered while active_write_id happens to be set must NOT be routed to
+        # the write handler — that would double-fail the write on a parser error
+        # AND drop the actual read response on the floor.
+        is_write_resp = _looks_like_write_response(response_xml)
+        if is_write_resp and self._write_queue:
+            if session.active_write_id is None:
+                logger.warning(
+                    "stray_write_response",
+                    ticket=session.ticket,
+                    company=session.company_id,
+                )
+                # Nothing to attribute it to — drop, but advance so we don't loop.
+                return session.progress_pct
             return self._handle_write_response(session, response_xml)
+
+        # Read-shaped response. If active_write_id is somehow set, this is the
+        # symptom we saw on 2026-04-25: write was dispatched, response never
+        # came back, then a read response arrived and the old code routed it to
+        # the write handler. Clear the orphan and mark the write failed before
+        # processing the read normally.
+        if session.active_write_id is not None and self._write_queue:
+            orphan_id = session.active_write_id
+            logger.warning(
+                "read_response_while_write_active",
+                queue_id=orphan_id,
+                ticket=session.ticket,
+                company=session.company_id,
+            )
+            self._write_queue.mark_failed(
+                orphan_id,
+                "Read response received while write was in flight — "
+                "write response was lost; will retry on next session",
+            )
+            session.active_write_id = None
 
         task = session.current_task
         if task is None:
