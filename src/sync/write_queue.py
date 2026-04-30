@@ -47,6 +47,7 @@ class WriteQueueManager:
         inventory_site_name: str | None = None,
         external_id: str | None = None,
         external_source: str | None = None,
+        depends_on_write_id: int | None = None,
     ) -> dict:
         """
         Enqueue a BuildAssembly operation.
@@ -74,13 +75,20 @@ class WriteQueueManager:
         if inventory_site_name:
             payload["inventory_site_name"] = inventory_site_name
 
+        # When a dependency is declared, mark the row 'cascade_waiting' so the
+        # dispatcher (which only claims status='pending') skips it. The
+        # qb_meta.release_cascade_dependents trigger flips it to 'pending'
+        # as soon as the depended-upon row reaches status='completed'.
+        initial_status = "cascade_waiting" if depends_on_write_id else "pending"
+
         row = {
             "company_id": company_id,
             "operation": "build_assembly",
             "payload": payload,
-            "status": "pending",
+            "status": initial_status,
             "external_id": external_id,
             "external_source": external_source,
+            "depends_on_write_id": depends_on_write_id,
         }
 
         result = self._table().insert(row).execute()
@@ -105,6 +113,12 @@ class WriteQueueManager:
 
         Returns the queue row or None if the queue is empty.
         Uses status transition pending → claimed to prevent double-sends.
+
+        Cascade rows (status='cascade_waiting', depends_on_write_id set) are
+        skipped here naturally because we filter status='pending'. The
+        qb_meta.release_cascade_dependents trigger flips them to 'pending'
+        as soon as the parent reaches 'completed', at which point claim_next
+        picks them up on the next QBWC poll.
         """
         # Find oldest pending item that hasn't exceeded max attempts
         result = (
