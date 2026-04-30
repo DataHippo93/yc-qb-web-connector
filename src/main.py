@@ -40,6 +40,16 @@ class BuildAssemblyRequest(BaseModel):
     inventory_site_name: str | None = Field(None, description="Inventory site (Enterprise only)")
     external_id: str | None = Field(None, description="Caller's reference ID (e.g. MakerHub batch ID)")
     external_source: str | None = Field(None, description="Caller system name (e.g. 'makerhub')")
+    depends_on_write_id: int | None = Field(
+        None,
+        description=(
+            "When set, this build is part of a cascade and depends on another write_queue "
+            "row's completion. The connector inserts the row as 'cascade_waiting'; the trigger "
+            "release_cascade_dependents flips it to 'pending' as soon as the dependency "
+            "reaches status='completed'. Used by MakerHub auto-cascading-build-assembly to "
+            "enforce parent-build-before-child-build ordering."
+        ),
+    )
 
 
 # ============================================================================
@@ -237,6 +247,7 @@ def create_app() -> FastAPI:
             inventory_site_name=body.inventory_site_name,
             external_id=body.external_id,
             external_source=body.external_source,
+            depends_on_write_id=body.depends_on_write_id,
         )
 
         return {
