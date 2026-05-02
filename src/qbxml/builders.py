@@ -568,10 +568,12 @@ def build_build_assembly_query(
     # accept a top-level RefNumber. MaxReturned alone returns the most recent
     # builds; we'll find #5050 in the response (or the most recent one carrying
     # an InventorySiteRef, which is what we actually need).
+    # Both <RefNumber>5050</RefNumber> and <MaxReturned/IncludeLineItems> have
+    # triggered parser error 0x80040400. Try bare element (no children) like
+    # ItemSitesQueryRq required - if even bare fails, BuildAssemblyQueryRq isn't
+    # recognised by this QB file's qbXML implementation and we accept defeat.
     attrs = {"requestID": request_id}
     rq = Element("BuildAssemblyQueryRq", **attrs)
-    SubElement(rq, "MaxReturned").text = "10"
-    SubElement(rq, "IncludeLineItems").text = "true"
     return _build_qbxml_envelope(rq)
 
 
