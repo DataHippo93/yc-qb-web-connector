@@ -400,6 +400,46 @@ def build_build_assembly_add(
     return _build_qbxml_envelope(rq)
 
 
+def build_txn_del(
+    txn_del_type: str,
+    txn_id: str,
+    request_id: str = "1",
+) -> str:
+    """
+    Build a generic TxnDelRq to delete a QuickBooks transaction by TxnID.
+
+    qbXML uses one TxnDelRq for all transaction-type deletions; the
+    TxnDelType element discriminates (BuildAssembly, Bill, Check, ...).
+    Element ordering per qbXML 13.0 schema: TxnDelType, TxnID.
+
+    Args:
+        txn_del_type: One of the qbXML TxnDelType enums (e.g. "BuildAssembly").
+        txn_id: The TxnID returned by the original Add response.
+        request_id: Request ID for the qbXML envelope.
+    """
+    rq = Element("TxnDelRq", requestID=request_id)
+    SubElement(rq, "TxnDelType").text = txn_del_type
+    SubElement(rq, "TxnID").text = txn_id
+    return _build_qbxml_envelope(rq)
+
+
+def build_build_assembly_del(
+    txn_id: str,
+    request_id: str = "1",
+) -> str:
+    """
+    Delete a previously-recorded BuildAssembly transaction in QuickBooks
+    by its TxnID. Thin wrapper over build_txn_del with TxnDelType locked
+    to "BuildAssembly" so callers can't pass the wrong type.
+
+    QB will reverse the inventory effect of the build (raw materials
+    returned to stock, assembly removed). The TxnID must reference an
+    existing BuildAssembly that is not already linked to a downstream
+    transaction (e.g. an invoice consuming the assembly).
+    """
+    return build_txn_del("BuildAssembly", txn_id, request_id=request_id)
+
+
 def build_company_query(request_id: str = "1") -> str:
     """Retrieve company info (no filter needed)."""
     rq = Element("CompanyQueryRq", requestID=request_id)

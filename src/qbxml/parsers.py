@@ -1327,10 +1327,12 @@ def parse_write_response(xml_string: str) -> WriteResponse:
             status_message=f"No QBXMLMsgsRs | RAW: {raw_preview}", request_id=None,
         )
 
-    # Find the *AddRs or *ModRs element
+    # Find the *AddRs, *ModRs, or *DelRs element. Delete responses use
+    # the generic <TxnDelRs> name (which also ends in DelRs).
     rs_el = None
     for child in msgs_rs:
-        if child.tag.endswith("AddRs") or child.tag.endswith("ModRs"):
+        tag = child.tag
+        if tag.endswith("AddRs") or tag.endswith("ModRs") or tag.endswith("DelRs"):
             rs_el = child
             break
 
@@ -1361,22 +1363,27 @@ def parse_write_response(xml_string: str) -> WriteResponse:
             status_message=status_message, request_id=request_id,
         )
 
-    # Extract the Ret element (e.g. BuildAssemblyRet)
+    # For Add/Mod responses the Ret element wraps the result
+    # (e.g. BuildAssemblyRet). For Del responses (TxnDelRs) the fields
+    # are direct children of rs_el (TxnID, TxnDelType, TimeDeleted).
     ret_el = None
-    for child in rs_el:
-        if child.tag.endswith("Ret"):
-            ret_el = child
-            break
+    is_del = rs_el.tag.endswith("DelRs")
+    if not is_del:
+        for child in rs_el:
+            if child.tag.endswith("Ret"):
+                ret_el = child
+                break
+    field_source = ret_el if ret_el is not None else (rs_el if is_del else None)
 
     txn_id = None
     txn_number = None
     edit_sequence = None
     is_pending = None
-    if ret_el is not None:
-        txn_id = _text(ret_el, "TxnID")
-        txn_number = _text(ret_el, "RefNumber")
-        edit_sequence = _text(ret_el, "EditSequence")
-        is_pending = _bool(ret_el, "IsPending")
+    if field_source is not None:
+        txn_id = _text(field_source, "TxnID")
+        txn_number = _text(field_source, "RefNumber")
+        edit_sequence = _text(field_source, "EditSequence")
+        is_pending = _bool(field_source, "IsPending")
 
     return WriteResponse(
         success=True,
