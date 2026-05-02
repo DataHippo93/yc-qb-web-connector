@@ -7,6 +7,10 @@ from __future__ import annotations
 from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom import minidom
 
+from src.utils.logging import get_logger
+
+logger = get_logger(__name__)
+
 
 # Bumped from 13.0 to 16.0 on 2026-05-02 to make <LotNumber> a valid element
 # under BuildAssemblyAdd (added in qbXML 16). qbXML schemas are
@@ -472,11 +476,25 @@ def build_build_assembly_add(
         site_ref = SubElement(add, "InventorySiteRef")
         SubElement(site_ref, "FullName").text = inventory_site_name
 
-    # SerialNumber and LotNumber follow InventorySiteRef and precede Memo
-    # per the qbXML 13.0 schema. Only one is allowed (assemblies are either
-    # serial- or lot-tracked, not both); ADK Fragrance uses lot.
+    # LotNumber on BuildAssemblyAdd: INTENTIONALLY OMITTED until we verify
+    # the correct qbXML-16+ schema placement. Even after bumping QBXML_VERSION
+    # to "16.0", placing <LotNumber> as a direct child of <BuildAssemblyAdd>
+    # still triggered parser error 0x80040400 (write_queue id=64, 2026-05-02).
+    # The element likely needs a wrapper (e.g. <SerialNumberOrLotNumber>) or
+    # belongs on a different sub-element. The lot value is preserved in
+    # write_queue.payload['lot_number'] for re-emission once the schema is
+    # confirmed against an Intuit working sample. Keeping the parameter so
+    # callers (MakerHub) don't need to change — just no XML side effect yet.
     if lot_number:
-        SubElement(add, "LotNumber").text = lot_number
+        logger.debug(
+            "build_assembly_lot_number_dropped",
+            lot_number=lot_number,
+            assembly_list_id=assembly_list_id,
+            reason="qbxml-16-lot-placement-unverified",
+        )
+    # Original (still-broken) attempt was:
+    #     if lot_number:
+    #         SubElement(add, "LotNumber").text = lot_number
 
     if memo:
         SubElement(add, "Memo").text = memo
