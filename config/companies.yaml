@@ -69,6 +69,7 @@ companies:
       - items
       - inventory_items
       - assembly_bom
+      - inventory_sites
       - purchase_orders
       - item_receipts
       - bills

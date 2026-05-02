@@ -37,6 +37,9 @@ def build_generic_query(
     query_rq: str,
     request_id: str = "1",
     from_modified_date: str | None = None,
+    to_modified_date: str | None = None,
+    from_txn_date: str | None = None,
+    to_txn_date: str | None = None,
     max_returned: int = 100,
     iterator_start: bool = False,
     iterator_continue: bool = False,
@@ -73,15 +76,26 @@ def build_generic_query(
     max_el = SubElement(rq, "MaxReturned")
     max_el.text = str(max_returned)
 
-    # Incremental filter — don't add on Continue (must match original request)
-    if from_modified_date and not iterator_continue:
-        if is_transaction:
-            # Transaction queries use ModifiedDateRangeFilter wrapper
-            date_filter = SubElement(rq, "ModifiedDateRangeFilter")
-            SubElement(date_filter, "FromModifiedDate").text = from_modified_date
-        else:
-            # List queries use bare FromModifiedDate
-            SubElement(rq, "FromModifiedDate").text = from_modified_date
+    # Date filters — only on Start / non-Continue. Continue must match original.
+    if not iterator_continue:
+        if is_transaction and (from_txn_date or to_txn_date):
+            txnf = SubElement(rq, "TxnDateRangeFilter")
+            if from_txn_date:
+                SubElement(txnf, "FromTxnDate").text = from_txn_date
+            if to_txn_date:
+                SubElement(txnf, "ToTxnDate").text = to_txn_date
+        elif from_modified_date or to_modified_date:
+            if is_transaction:
+                modf = SubElement(rq, "ModifiedDateRangeFilter")
+                if from_modified_date:
+                    SubElement(modf, "FromModifiedDate").text = from_modified_date
+                if to_modified_date:
+                    SubElement(modf, "ToModifiedDate").text = to_modified_date
+            else:
+                if from_modified_date:
+                    SubElement(rq, "FromModifiedDate").text = from_modified_date
+                if to_modified_date:
+                    SubElement(rq, "ToModifiedDate").text = to_modified_date
 
     # Include line items for transactions that have them
     if include_line_items:
@@ -139,6 +153,9 @@ def build_customer_query(
 def build_invoice_query(
     request_id: str = "1",
     from_modified_date: str | None = None,
+    to_modified_date: str | None = None,
+    from_txn_date: str | None = None,
+    to_txn_date: str | None = None,
     max_returned: int = 50,
     iterator_start: bool = False,
     iterator_continue: bool = False,
@@ -155,9 +172,19 @@ def build_invoice_query(
     rq = Element("InvoiceQueryRq", **attrs)
     SubElement(rq, "MaxReturned").text = str(max_returned)
 
-    if from_modified_date and not iterator_continue:
-        df = SubElement(rq, "ModifiedDateRangeFilter")
-        SubElement(df, "FromModifiedDate").text = from_modified_date
+    if not iterator_continue:
+        if from_txn_date or to_txn_date:
+            df = SubElement(rq, "TxnDateRangeFilter")
+            if from_txn_date:
+                SubElement(df, "FromTxnDate").text = from_txn_date
+            if to_txn_date:
+                SubElement(df, "ToTxnDate").text = to_txn_date
+        elif from_modified_date or to_modified_date:
+            df = SubElement(rq, "ModifiedDateRangeFilter")
+            if from_modified_date:
+                SubElement(df, "FromModifiedDate").text = from_modified_date
+            if to_modified_date:
+                SubElement(df, "ToModifiedDate").text = to_modified_date
 
     # Include line items
     SubElement(rq, "IncludeLineItems").text = "true"
@@ -191,6 +218,30 @@ def build_item_query(
     if from_modified_date and not iterator_continue:
         SubElement(rq, "FromModifiedDate").text = from_modified_date
 
+    return _build_qbxml_envelope(rq)
+
+
+def build_inventory_site_query(
+    request_id: str = "1",
+    from_modified_date: str | None = None,
+    max_returned: int = 200,
+    iterator_start: bool = False,
+    iterator_continue: bool = False,
+    iterator_id: str | None = None,
+) -> str:
+    """Build InventorySiteQueryRq — sites are list objects, no iterator
+    in current QB versions. Returns one row per site (Factory, Unspecified
+    Site, etc.) with ListID, Name, FullName, IsActive.
+
+    InventorySite is the QB Enterprise Multi-Site Inventory list. ADK
+    Fragrance: Factory + Unspecified Site. We need ListID (not FullName)
+    to write InventorySiteRef on a BuildAssemblyAdd because qbXML 13.0+
+    rejects <FullName> for site refs in BuildAssembly contexts.
+    """
+    attrs = {"requestID": request_id}
+    rq = Element("InventorySiteQueryRq", **attrs)
+    if from_modified_date:
+        SubElement(rq, "FromModifiedDate").text = from_modified_date
     return _build_qbxml_envelope(rq)
 
 
@@ -345,6 +396,7 @@ def build_build_assembly_add(
     memo: str | None = None,
     mark_pending_if_required: bool = False,
     inventory_site_name: str | None = None,
+    inventory_site_list_id: str | None = None,
     lot_number: str | None = None,
     request_id: str = "1",
 ) -> str:
@@ -391,7 +443,14 @@ def build_build_assembly_add(
     if ref_number:
         SubElement(add, "RefNumber").text = ref_number
 
-    if inventory_site_name:
+    # Site reference: prefer ListID (qbXML 13.0 BuildAssemblyAdd rejects
+    # <FullName> for site refs in some QB Enterprise + Multi-Site
+    # configurations with a parser-level error 0x80040400. ListID is
+    # always accepted when the site exists.)
+    if inventory_site_list_id:
+        site_ref = SubElement(add, "InventorySiteRef")
+        SubElement(site_ref, "ListID").text = inventory_site_list_id
+    elif inventory_site_name:
         site_ref = SubElement(add, "InventorySiteRef")
         SubElement(site_ref, "FullName").text = inventory_site_name
 
@@ -481,6 +540,7 @@ QUERY_BUILDERS = {
     "items": build_item_query,
     "inventory_items": build_generic_query,
     "assembly_bom": build_assembly_bom_query,
+    "inventory_sites": build_inventory_site_query,
     "invoices": build_invoice_query,
     "item_receipts": build_item_receipt_query,
     "journal_entries": build_journal_entry_query,
@@ -492,6 +552,9 @@ def build_query_for_entity(
     query_rq: str,
     request_id: str = "1",
     from_modified_date: str | None = None,
+    to_modified_date: str | None = None,
+    from_txn_date: str | None = None,
+    to_txn_date: str | None = None,
     max_returned: int = 100,
     iterator_start: bool = False,
     iterator_continue: bool = False,
@@ -502,6 +565,7 @@ def build_query_for_entity(
     Falls back to generic builder if no specialized one exists.
     """
     builder = QUERY_BUILDERS.get(entity_name)
+    BACKFILL_AWARE = {"invoices"}
     if builder:
         if entity_name == "inventory_items":
             query_rq = "ItemInventoryQueryRq"
@@ -509,6 +573,19 @@ def build_query_for_entity(
                 query_rq=query_rq,
                 request_id=request_id,
                 from_modified_date=from_modified_date,
+                to_modified_date=to_modified_date,
+                max_returned=max_returned,
+                iterator_start=iterator_start,
+                iterator_continue=iterator_continue,
+                iterator_id=iterator_id,
+            )
+        if entity_name in BACKFILL_AWARE:
+            return builder(
+                request_id=request_id,
+                from_modified_date=from_modified_date,
+                to_modified_date=to_modified_date,
+                from_txn_date=from_txn_date,
+                to_txn_date=to_txn_date,
                 max_returned=max_returned,
                 iterator_start=iterator_start,
                 iterator_continue=iterator_continue,
@@ -523,20 +600,19 @@ def build_query_for_entity(
             iterator_id=iterator_id,
         )
     else:
-        # Look up entity definition to determine if it's a transaction with lines
         from src.qbxml.entities import ENTITY_BY_NAME
-
         edef = ENTITY_BY_NAME.get(entity_name)
         is_txn = edef.is_transaction if edef else False
-        # Transaction queries with line items need IncludeLineItems=true
         has_lines = is_txn and entity_name not in (
             "bill_payments", "receive_payments", "transfers", "time_tracking",
         )
-
         return build_generic_query(
             query_rq=query_rq,
             request_id=request_id,
             from_modified_date=from_modified_date,
+            to_modified_date=to_modified_date,
+            from_txn_date=from_txn_date if is_txn else None,
+            to_txn_date=to_txn_date if is_txn else None,
             max_returned=max_returned,
             iterator_start=iterator_start,
             iterator_continue=iterator_continue,

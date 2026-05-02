@@ -608,6 +608,23 @@ def parse_class(el: etree._Element) -> dict:
     }
 
 
+def parse_inventory_site(el: etree._Element) -> dict:
+    """Parse InventorySiteRet — Multi-Site Inventory location list."""
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "full_name": _text(el, "FullName"),
+        "is_active": _bool(el, "IsActive"),
+        "site_desc": _text(el, "SiteDesc"),
+        "contact": _text(el, "Contact"),
+        "phone": _text(el, "Phone"),
+        "email": _text(el, "Email"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+        "edit_sequence": _text(el, "EditSequence"),
+    }
+
+
 def parse_sales_tax_code(el: etree._Element) -> dict:
     return {
         "qb_list_id": _text(el, "ListID"),
@@ -1093,6 +1110,7 @@ RESPONSE_PARSERS: dict[str, Any] = {
     # List objects (no lines)
     "AccountQueryRs": ("AccountRet", parse_account, False),
     "ClassQueryRs": ("ClassRet", parse_class, False),
+    "InventorySiteQueryRs": ("InventorySiteRet", parse_inventory_site, False),
     "SalesTaxCodeQueryRs": ("SalesTaxCodeRet", parse_sales_tax_code, False),
     "PaymentMethodQueryRs": ("PaymentMethodRet", parse_payment_method, False),
     "ShipMethodQueryRs": ("ShipMethodRet", parse_ship_method, False),
@@ -1273,6 +1291,65 @@ def _element_to_dict(el: etree._Element) -> dict:
 # ============================================================================
 # Write response parsers
 # ============================================================================
+
+@dataclass
+class CompanyIdentity:
+    """Result of parsing a CompanyQueryRq response — used to verify which QB
+    file QBWC actually connected to before any data is upserted."""
+    success: bool
+    status_code: int
+    status_message: str
+    company_name: str | None = None
+    legal_company_name: str | None = None
+    file_name: str | None = None
+
+
+def parse_company_query_response(xml_string: str) -> CompanyIdentity:
+    """Parse a CompanyQueryRs response — extract <CompanyName>, <LegalCompanyName>,
+    <FileName>. Used by the session identity-verification step."""
+    if not xml_string or not xml_string.strip():
+        return CompanyIdentity(success=False, status_code=-1, status_message="Empty response")
+    try:
+        root = etree.fromstring(
+            xml_string.encode("utf-8") if isinstance(xml_string, str) else xml_string
+        )
+    except etree.XMLSyntaxError as e:
+        return CompanyIdentity(success=False, status_code=-1, status_message=f"XML parse error: {e}")
+
+    msgs_rs = root.find("QBXMLMsgsRs")
+    if msgs_rs is None:
+        return CompanyIdentity(success=False, status_code=-1, status_message="No QBXMLMsgsRs")
+
+    rs = None
+    for child in msgs_rs:
+        if str(child.tag).endswith("CompanyQueryRs"):
+            rs = child
+            break
+    if rs is None:
+        return CompanyIdentity(success=False, status_code=-1, status_message="No CompanyQueryRs")
+
+    status_code = int(rs.get("statusCode", "-1"))
+    status_message = rs.get("statusMessage", "")
+    if status_code != 0:
+        return CompanyIdentity(
+            success=False, status_code=status_code, status_message=status_message,
+        )
+
+    ret = rs.find("CompanyRet")
+    if ret is None:
+        return CompanyIdentity(
+            success=False, status_code=-1, status_message="No CompanyRet element",
+        )
+
+    return CompanyIdentity(
+        success=True,
+        status_code=0,
+        status_message=status_message,
+        company_name=_text(ret, "CompanyName"),
+        legal_company_name=_text(ret, "LegalCompanyName"),
+        file_name=_text(ret, "FileName"),
+    )
+
 
 @dataclass
 class WriteResponse:

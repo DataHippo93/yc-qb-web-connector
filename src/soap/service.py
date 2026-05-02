@@ -21,7 +21,9 @@ from lxml import etree
 from src.soap.session import get_session_store
 from src.supabase.client import get_supabase_client
 from src.supabase.upsert import SupabaseUpserter
+from src.sync.backfill import BackfillJobManager
 from src.sync.coordinator import SyncCoordinator
+from src.sync.identity import CompanyIdentityChecker
 from src.sync.state import SyncStateManager
 from src.sync.write_queue import WriteQueueManager
 from src.utils.config import get_settings, get_company_config, company_id_from_ticket_or_file
@@ -48,7 +50,15 @@ def _make_coordinator() -> SyncCoordinator:
     state = SyncStateManager(client)
     upserter = SupabaseUpserter(client)
     write_queue = WriteQueueManager(client)
-    return SyncCoordinator(state, upserter, write_queue=write_queue)
+    backfill = BackfillJobManager(client)
+    identity = CompanyIdentityChecker(client)
+    return SyncCoordinator(
+        state,
+        upserter,
+        write_queue=write_queue,
+        backfill_manager=backfill,
+        identity_checker=identity,
+    )
 
 
 # ============================================================================
@@ -202,6 +212,13 @@ def _handle_send_request_xml(method_el: etree._Element) -> bytes:
         cid = company_id_from_ticket_or_file(company_file, company_config)
         if cid:
             session.company_id = cid
+
+    # Capture QBWC's reported company file path for the identity checker.
+    # This is the OS-level file path (e.g. C:\QB\Company.QBW) — a hint, since
+    # the authoritative check is the CompanyQueryRq probe, but a wrong file
+    # path is itself a strong mismatch signal.
+    if company_file:
+        session.last_known_company_file = company_file
 
     coordinator = _make_coordinator()
     xml = coordinator.get_next_request(session)

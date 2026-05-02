@@ -8,11 +8,13 @@ from datetime import datetime, timezone
 
 from lxml import etree
 
-from src.qbxml.builders import build_query_for_entity
-from src.qbxml.entities import get_entities_for_company, get_entity
-from src.qbxml.parsers import parse_qbxml_response, parse_write_response
+from src.qbxml.builders import build_company_query, build_query_for_entity
+from src.qbxml.entities import get_entities_for_company, get_entity, ENTITY_BY_NAME
+from src.qbxml.parsers import parse_company_query_response, parse_qbxml_response, parse_write_response
 from src.soap.session import SyncSession, SyncTask
 from src.supabase.upsert import SupabaseUpserter
+from src.sync.backfill import BackfillJobManager
+from src.sync.identity import CompanyIdentityChecker
 from src.sync.state import SyncStateManager
 from src.sync.write_queue import WriteQueueManager
 from src.utils.config import get_settings, get_company_config
@@ -58,23 +60,45 @@ class SyncCoordinator:
         state_manager: SyncStateManager,
         upserter: SupabaseUpserter,
         write_queue: WriteQueueManager | None = None,
+        backfill_manager: BackfillJobManager | None = None,
+        identity_checker: CompanyIdentityChecker | None = None,
     ) -> None:
         self._state = state_manager
         self._upserter = upserter
         self._write_queue = write_queue
+        self._backfill = backfill_manager
+        self._identity = identity_checker
         self._settings = get_settings()
         self._company_cfg = get_company_config()
 
     def build_task_queue(self, session: SyncSession) -> None:
         """
         Populate session.task_queue with entities to sync, in priority order.
-        Synchronous — state reads are fast Supabase selects.
+
+        Order: identity-check FIRST, then backfill jobs, then regular incremental
+        syncs. The identity check sets session.identity_aborted on mismatch and
+        all later tasks are skipped without dispatching qbXML.
         """
         company_id = session.company_id
         enabled = self._company_cfg.enabled_entities(company_id)
         entity_defs = get_entities_for_company(enabled)
 
         tasks: list[SyncTask] = []
+
+        # 0) Company-identity verification — runs CompanyQueryRq before any data
+        tasks.append(SyncTask(
+            entity_type="__company_identity__",
+            query_name="CompanyQueryRq",
+            is_incremental=False,
+            from_date=None,
+            is_identity_check=True,
+        ))
+
+        # 1) Backfill tasks — claim any pending jobs
+        backfill_tasks = self._build_backfill_tasks(company_id)
+        tasks.extend(backfill_tasks)
+
+        # 2) Regular per-entity sync tasks
         for edef in entity_defs:
             from_date = self._state.get_from_date(
                 company_id,
@@ -93,14 +117,59 @@ class SyncCoordinator:
         session.task_queue = tasks
         session.current_task_index = 0
 
-        full_count = sum(1 for t in tasks if not t.is_incremental)
+        full_count = sum(
+            1 for t in tasks if not t.is_incremental and not t.is_backfill and not t.is_identity_check
+        )
         logger.info(
             "task_queue_built",
             company=company_id,
             total=len(tasks),
+            backfill=len(backfill_tasks),
             full_sync=full_count,
-            incremental=len(tasks) - full_count,
+            incremental=len(tasks) - full_count - len(backfill_tasks) - 1,
         )
+
+    def _build_backfill_tasks(self, company_id: str) -> list[SyncTask]:
+        """Claim pending backfill jobs and convert them to SyncTask front-runners."""
+        if self._backfill is None:
+            return []
+        try:
+            jobs = self._backfill.claim_pending_for_company(company_id)
+        except Exception as e:
+            logger.error("backfill_claim_failed", company=company_id, error=str(e))
+            return []
+        tasks: list[SyncTask] = []
+        for job in jobs:
+            entity_name = job["entity_type"]
+            edef = ENTITY_BY_NAME.get(entity_name)
+            if edef is None:
+                logger.error("backfill_unknown_entity", job_id=job["id"], entity=entity_name)
+                self._backfill.mark_error(job["id"], f"Unknown entity_type {entity_name!r}")
+                continue
+            filter_type = job.get("filter_type", "modified")
+            from_d = job["from_date"]
+            to_d = job["to_date"]
+            if filter_type == "txn":
+                if not edef.supports_txn_date_filter:
+                    self._backfill.mark_error(
+                        job["id"],
+                        f"Entity {entity_name} does not support TxnDateRangeFilter — use filter_type='modified'",
+                    )
+                    continue
+                tasks.append(SyncTask(
+                    entity_type=entity_name, query_name=edef.query_rq,
+                    is_incremental=True, from_date=None, to_date=None,
+                    txn_from_date=from_d[:10] if isinstance(from_d, str) else from_d,
+                    txn_to_date=to_d[:10] if isinstance(to_d, str) else to_d,
+                    backfill_job_id=job["id"],
+                ))
+            else:
+                tasks.append(SyncTask(
+                    entity_type=entity_name, query_name=edef.query_rq,
+                    is_incremental=True, from_date=from_d, to_date=to_d,
+                    backfill_job_id=job["id"],
+                ))
+        return tasks
 
     def get_next_request(self, session: SyncSession) -> str:
         """
@@ -146,6 +215,14 @@ class SyncCoordinator:
             if write_xml:
                 return write_xml
 
+        # If a previous identity-check aborted us, skip every remaining task.
+        if session.identity_aborted:
+            while session.current_task and not session.current_task.is_done:
+                session.current_task.completed_at = datetime.now(timezone.utc).isoformat()
+                session.current_task.error = "identity_aborted"
+                session.advance_task()
+            return ""
+
         # Skip tasks already marked done
         while session.current_task and session.current_task.is_done:
             session.advance_task()
@@ -154,19 +231,46 @@ class SyncCoordinator:
         if task is None:
             return ""
 
+        # Identity-check task uses the special CompanyQueryRq path
+        if task.is_identity_check:
+            if task.started_at is None:
+                task.started_at = datetime.now(timezone.utc).isoformat()
+                logger.info(
+                    "company_identity_check_start",
+                    company=session.company_id,
+                    ticket=session.ticket,
+                )
+            return build_company_query(request_id=str(session.current_task_index + 1))
+
         company_cfg = self._company_cfg.get(session.company_id)
         max_returned = company_cfg.get("max_returned", self._settings.qbxml_max_returned)
 
         if task.started_at is None:
             task.started_at = datetime.now(timezone.utc).isoformat()
-            self._state.mark_running(session.company_id, task.entity_type)
-            logger.info(
-                "entity_start",
-                company=session.company_id,
-                entity=task.entity_type,
-                incremental=task.is_incremental,
-                from_date=task.from_date,
+            # Append-only history row so silent failures get an audit trail.
+            task.log_id = self._state.log_run_started(
+                company_id=session.company_id,
+                entity_type=task.entity_type,
+                is_full_sync=not task.is_incremental,
+                ticket=session.ticket,
             )
+            if task.is_backfill and self._backfill is not None:
+                # Backfill tasks have their OWN lifecycle. Do NOT touch sync_state
+                # — that would corrupt the entity's incremental cursor.
+                self._backfill.mark_running(task.backfill_job_id)
+                logger.info(
+                    "backfill_start", company=session.company_id,
+                    entity=task.entity_type, job_id=task.backfill_job_id,
+                    from_modified=task.from_date, to_modified=task.to_date,
+                    from_txn=task.txn_from_date, to_txn=task.txn_to_date,
+                )
+            else:
+                self._state.mark_running(session.company_id, task.entity_type)
+                logger.info(
+                    "entity_start", company=session.company_id,
+                    entity=task.entity_type, incremental=task.is_incremental,
+                    from_date=task.from_date,
+                )
 
         # Check if this entity supports iterators
         try:
@@ -177,7 +281,7 @@ class SyncCoordinator:
 
         # Build request
         if task.iterator_id is not None and use_iterator:
-            # Continue an in-progress iterator
+            # Continue an in-progress iterator — must NOT include any filter
             xml = build_query_for_entity(
                 entity_name=task.entity_type,
                 query_rq=task.query_name,
@@ -187,12 +291,14 @@ class SyncCoordinator:
                 iterator_id=task.iterator_id,
             )
         else:
-            # Start fresh (with optional date filter)
             xml = build_query_for_entity(
                 entity_name=task.entity_type,
                 query_rq=task.query_name,
                 request_id=str(session.current_task_index + 1),
                 from_modified_date=task.from_date,
+                to_modified_date=task.to_date,
+                from_txn_date=task.txn_from_date,
+                to_txn_date=task.txn_to_date,
                 max_returned=max_returned,
                 iterator_start=use_iterator,
             )
@@ -251,6 +357,12 @@ class SyncCoordinator:
         if task is None:
             return 100
 
+        # Identity-check response is parsed and evaluated separately. On a
+        # failed check we set session.identity_aborted=True so all remaining
+        # tasks are skipped without any data flowing into the schema.
+        if task.is_identity_check:
+            return self._handle_identity_response(session, response_xml)
+
         pg_schema = self._company_cfg.pg_schema(session.company_id)
 
         # Parse
@@ -263,14 +375,19 @@ class SyncCoordinator:
                 company=session.company_id,
                 entity=task.entity_type,
                 message=parsed.status_message,
+                backfill_job_id=task.backfill_job_id,
             )
             task.completed_at = datetime.now(timezone.utc).isoformat()
-            self._state.mark_done(
-                company_id=session.company_id,
-                entity_type=task.entity_type,
-                records_synced=0,
-                is_full_sync=not task.is_incremental,
-            )
+            if task.is_backfill and self._backfill is not None:
+                self._backfill.mark_done(task.backfill_job_id, records_synced=0)
+            else:
+                self._state.mark_done(
+                    company_id=session.company_id,
+                    entity_type=task.entity_type,
+                    records_synced=0,
+                    is_full_sync=not task.is_incremental,
+                )
+            self._state.log_run_done(task.log_id, records_synced=0)
             session.advance_task()
             return session.progress_pct
 
@@ -282,10 +399,15 @@ class SyncCoordinator:
                 entity=task.entity_type,
                 code=parsed.status_code,
                 message=parsed.status_message,
+                backfill_job_id=task.backfill_job_id,
             )
             task.error = msg
             session.errors.append(f"{task.entity_type}: {msg}")
-            self._state.mark_error(session.company_id, task.entity_type, msg)
+            if task.is_backfill and self._backfill is not None:
+                self._backfill.mark_error(task.backfill_job_id, msg)
+            else:
+                self._state.mark_error(session.company_id, task.entity_type, msg)
+            self._state.log_run_error(task.log_id, msg)
             # Skip entity
             task.completed_at = datetime.now(timezone.utc).isoformat()
             session.advance_task()
@@ -342,21 +464,93 @@ class SyncCoordinator:
             task.iterator_remaining = 0
             task.completed_at = datetime.now(timezone.utc).isoformat()
 
-            self._state.mark_done(
-                company_id=session.company_id,
-                entity_type=task.entity_type,
-                records_synced=task.records_processed,
-                is_full_sync=not task.is_incremental,
-            )
-            logger.info(
-                "entity_done",
-                company=session.company_id,
-                entity=task.entity_type,
-                records=task.records_processed,
-                schema=pg_schema,
-            )
+            if task.is_backfill and self._backfill is not None:
+                self._backfill.mark_done(task.backfill_job_id, records_synced=task.records_processed)
+                logger.info(
+                    "backfill_done", company=session.company_id,
+                    entity=task.entity_type, job_id=task.backfill_job_id,
+                    records=task.records_processed, schema=pg_schema,
+                )
+            else:
+                self._state.mark_done(
+                    company_id=session.company_id,
+                    entity_type=task.entity_type,
+                    records_synced=task.records_processed,
+                    is_full_sync=not task.is_incremental,
+                )
+                logger.info(
+                    "entity_done", company=session.company_id,
+                    entity=task.entity_type, records=task.records_processed,
+                    schema=pg_schema,
+                )
+            self._state.log_run_done(task.log_id, records_synced=task.records_processed)
             session.advance_task()
 
+        return session.progress_pct
+
+    # ------------------------------------------------------------------
+    # Company-identity verification
+    # ------------------------------------------------------------------
+
+    def _handle_identity_response(
+        self, session: SyncSession, response_xml: str
+    ) -> int:
+        """Process the CompanyQueryRq response. If the QB-reported company name
+        doesn't match the configured expected_company_name, set
+        session.identity_aborted=True so all subsequent tasks are skipped."""
+        task = session.current_task
+        identity = parse_company_query_response(response_xml)
+
+        # DB column wins over YAML default — set via /identity/{cid}/lock-in.
+        expected_name = None
+        expected_file = None
+        if self._identity is not None:
+            expected_name = self._identity.get_expected_name(session.company_id)
+            expected_file = self._identity.get_expected_file(session.company_id)
+        if expected_name is None:
+            expected_name = self._company_cfg.expected_company_name(session.company_id)
+        if expected_file is None:
+            expected_file = self._company_cfg.expected_company_file(session.company_id)
+
+        if self._identity is None:
+            logger.warning(
+                "company_identity_no_checker",
+                company=session.company_id,
+                observed_name=identity.company_name,
+            )
+            allowed, action = True, "observe_only"
+        else:
+            allowed, action = self._identity.evaluate(
+                company_id=session.company_id,
+                ticket=session.ticket,
+                identity=identity,
+                expected_company_name=expected_name,
+                observed_file_path=session.last_known_company_file,
+                expected_file_substr=expected_file,
+            )
+
+        task.completed_at = datetime.now(timezone.utc).isoformat()
+        task.records_processed = 0
+
+        if not allowed:
+            session.identity_aborted = True
+            session.status = "identity_failed"
+            session.errors.append(
+                f"Company identity mismatch: expected={expected_name!r} observed={identity.company_name!r} "
+                f"file={session.last_known_company_file!r} action={action}"
+            )
+            logger.error(
+                "session_aborted_identity_mismatch",
+                company=session.company_id,
+                ticket=session.ticket,
+                expected_name=expected_name,
+                observed_name=identity.company_name,
+                action=action,
+            )
+            session.advance_task()
+            return 100
+
+        session.advance_task()
         return session.progress_pct
 
     # ------------------------------------------------------------------

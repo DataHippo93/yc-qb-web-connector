@@ -344,6 +344,7 @@ class WriteQueueManager:
                     payload.get("mark_pending_if_required", False)
                 ),
                 inventory_site_name=payload.get("inventory_site_name"),
+                inventory_site_list_id=payload.get("inventory_site_list_id"),
                 lot_number=payload.get("lot_number"),
                 request_id=request_id,
             )

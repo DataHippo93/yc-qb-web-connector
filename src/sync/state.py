@@ -162,3 +162,59 @@ class SyncStateManager:
             logger.info("company_reset", company=company_id)
         except Exception as e:
             logger.error("reset_company_failed", company=company_id, error=str(e))
+
+    # ------------------------------------------------------------------
+    # Sync log (append-only history) — fixes the silent-failure gap where
+    # qb_meta.sync_log was never written to and we couldn't audit past runs.
+    # ------------------------------------------------------------------
+
+    def log_run_started(
+        self,
+        company_id: str,
+        entity_type: str,
+        is_full_sync: bool,
+        ticket: str | None = None,
+    ) -> int | None:
+        """Insert a sync_log row at run start. Returns the row id."""
+        try:
+            row = (
+                self._client.schema(META_SCHEMA)
+                .table("sync_log")
+                .insert({
+                    "company_id": company_id,
+                    "entity_type": entity_type,
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "is_full_sync": is_full_sync,
+                    "status": "running",
+                    "ticket": ticket,
+                })
+                .execute()
+            )
+            return row.data[0]["id"] if row.data else None
+        except Exception as e:
+            logger.warning("sync_log_insert_failed", error=str(e))
+            return None
+
+    def log_run_done(self, log_id: int | None, records_synced: int) -> None:
+        if log_id is None:
+            return
+        try:
+            self._client.schema(META_SCHEMA).table("sync_log").update({
+                "status": "done",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "records_synced": records_synced,
+            }).eq("id", log_id).execute()
+        except Exception as e:
+            logger.warning("sync_log_update_failed", error=str(e))
+
+    def log_run_error(self, log_id: int | None, error_message: str) -> None:
+        if log_id is None:
+            return
+        try:
+            self._client.schema(META_SCHEMA).table("sync_log").update({
+                "status": "error",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "error_message": error_message[:2000],
+            }).eq("id", log_id).execute()
+        except Exception as e:
+            logger.warning("sync_log_error_update_failed", error=str(e))

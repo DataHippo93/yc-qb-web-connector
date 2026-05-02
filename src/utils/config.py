@@ -115,6 +115,23 @@ class CompanyConfig:
     def display_name(self, company_id: str) -> str:
         return self.get(company_id).get("display_name", company_id)
 
+    def expected_company_name(self, company_id: str) -> str | None:
+        """Expected QB <CompanyName> for this company_id (set in companies.yaml as
+        qb_company_name). When configured, the runtime identity check ABORTS any
+        session that observes a different name; when None, observation-only mode."""
+        v = self.get(company_id).get("qb_company_name")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return None
+
+    def expected_company_file(self, company_id: str) -> str | None:
+        """Expected substring (case-insensitive) of the QB file path QBWC reports.
+        Set in companies.yaml as qb_company_file."""
+        v = self.get(company_id).get("qb_company_file")
+        if isinstance(v, str) and v.strip():
+            return v.strip()
+        return None
+
     def all_company_ids(self) -> list[str]:
         return list(self._companies.keys())
 

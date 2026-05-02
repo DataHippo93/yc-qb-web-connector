@@ -11,7 +11,7 @@ Shared metadata (sync state) lives in qb_meta schema.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from supabase import Client
@@ -23,6 +23,10 @@ logger = get_logger(__name__)
 
 # Max records per upsert call
 BATCH_SIZE = 500
+
+# Anything dated more than this many days in the future is suspicious — log
+# a warning at upsert time so QB-side data entry typos surface immediately.
+FUTURE_DATE_GRACE_DAYS = 1
 
 # entity_type → (table_name, pk_column, has_lines, lines_table)
 # table_name is unqualified — schema is provided by the caller
@@ -67,6 +71,43 @@ ENTITY_TABLE_MAP: dict[str, tuple[str, str, bool, str | None]] = {
 
 # Assembly bill of materials table name
 BOM_TABLE = "assembly_bom_lines"
+
+
+def _warn_on_future_txn_dates(
+    pg_schema: str,
+    entity_type: str,
+    records: list[dict],
+) -> None:
+    """Log a warning for any transaction header dated more than the grace
+    window in the future. Read-only — does not modify the records."""
+    today = date.today()
+    cutoff = today + timedelta(days=FUTURE_DATE_GRACE_DAYS)
+    suspect: list[tuple[str, str]] = []
+    for r in records:
+        td = r.get("txn_date")
+        if not td:
+            continue
+        try:
+            if isinstance(td, str):
+                td_parsed = date.fromisoformat(td[:10])
+            elif isinstance(td, date):
+                td_parsed = td
+            else:
+                continue
+        except (ValueError, TypeError):
+            continue
+        if td_parsed > cutoff:
+            suspect.append((r.get("qb_txn_id") or r.get("txn_number") or "?", td_parsed.isoformat()))
+    if suspect:
+        logger.warning(
+            "future_dated_transactions",
+            schema=pg_schema,
+            entity=entity_type,
+            today=today.isoformat(),
+            grace_days=FUTURE_DATE_GRACE_DAYS,
+            count=len(suspect),
+            sample=suspect[:5],
+        )
 
 
 class SupabaseUpserter:
@@ -126,6 +167,9 @@ class SupabaseUpserter:
             for h in headers:
                 h["synced_at"] = now
 
+            # Surface QB data-entry typos: warn on any txn dated >1 day in the future
+            _warn_on_future_txn_dates(pg_schema, entity_type, headers)
+
             headers_upserted = self._upsert_batch(
                 schema=pg_schema,
                 table=table_name,
@@ -146,6 +190,9 @@ class SupabaseUpserter:
         else:
             for r in records:
                 r["synced_at"] = now
+
+            # No-line transactions (bill_payments, etc.) still have txn_date
+            _warn_on_future_txn_dates(pg_schema, entity_type, records)
 
             # Support composite primary keys via comma-separated pk_col strings,
             # e.g. "qb_list_id,unit_name" for unit_of_measure_sets.

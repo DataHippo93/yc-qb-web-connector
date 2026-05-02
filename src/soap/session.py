@@ -25,8 +25,19 @@ class SyncTask:
     """Represents one entity to sync within a session."""
     entity_type: str          # e.g., "customers", "invoices"
     query_name: str           # e.g., "CustomerQueryRq"
-    is_incremental: bool      # True = use ModifiedDateRangeFilter
-    from_date: str | None     # ISO datetime string for filter
+    is_incremental: bool      # True = use ModifiedDateRangeFilter (incremental or backfill)
+    from_date: str | None     # ISO datetime string for filter (FromModifiedDate)
+    # Backfill window — set when this task came from qb_meta.backfill_jobs.
+    to_date: str | None = None             # ToModifiedDate upper bound
+    txn_from_date: str | None = None       # FromTxnDate (txn-filtered backfill)
+    txn_to_date: str | None = None         # ToTxnDate
+    backfill_job_id: int | None = None     # FK to qb_meta.backfill_jobs.id
+    # Sync log row id (for completion update)
+    log_id: int | None = None
+    # Identity-check task: when True, this is a CompanyQueryRq probe that must
+    # run BEFORE any data tasks. If it fails the strict check, the rest of the
+    # session is skipped via session.identity_aborted.
+    is_identity_check: bool = False
     # Iterator state
     iterator_id: str | None = None
     iterator_remaining: int = 0
@@ -36,6 +47,10 @@ class SyncTask:
     started_at: str | None = None
     completed_at: str | None = None
     error: str | None = None
+
+    @property
+    def is_backfill(self) -> bool:
+        return self.backfill_job_id is not None
 
     @property
     def is_done(self) -> bool:
@@ -69,9 +84,15 @@ class SyncSession:
     errors: list[str] = field(default_factory=list)
     total_records_synced: int = 0
     # State machine
-    status: str = "active"  # active | done | error | closing
+    status: str = "active"  # active | done | error | closing | identity_failed
     # Active write operation (if any) — queue item ID being processed
     active_write_id: int | None = None
+    # Set when the company-identity verification task aborts the session.
+    # All subsequent tasks are skipped without dispatching a single qbXML query.
+    identity_aborted: bool = False
+    # The QB file path QBWC most recently reported in sendRequestXML — used as
+    # a secondary cross-check inside the identity verifier.
+    last_known_company_file: str | None = None
 
     def touch(self) -> None:
         self.last_activity = datetime.now(timezone.utc)
@@ -125,6 +146,8 @@ class SyncSession:
             "total_records_synced": self.total_records_synced,
             "status": self.status,
             "active_write_id": self.active_write_id,
+            "identity_aborted": self.identity_aborted,
+            "last_known_company_file": self.last_known_company_file,
             "last_activity": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -164,6 +187,8 @@ class SyncSession:
             total_records_synced=row.get("total_records_synced", 0),
             status=row.get("status", "active"),
             active_write_id=row.get("active_write_id"),
+            identity_aborted=bool(row.get("identity_aborted", False)),
+            last_known_company_file=row.get("last_known_company_file"),
         )
 
 
