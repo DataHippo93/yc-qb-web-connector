@@ -54,10 +54,15 @@ ENTITY_REGISTRY: list[EntityDef] = [
         sync_priority=20,
     ),
     EntityDef(
+        # ADK Fragrance: dedicated InventorySiteQueryRq returned 'did not
+        # find a matching object' in Multi-Site QB Enterprise. We pull
+        # site refs out of ItemSitesQueryRq (per-item-per-site rows
+        # whose parents carry full InventorySiteRef) and dedupe in the
+        # parser. Entity name stays 'inventory_sites' on the storage side.
         name="inventory_sites",
-        query_rq="InventorySiteQueryRq",
-        query_rs="InventorySiteQueryRs",
-        ret_element="InventorySiteRet",
+        query_rq="ItemSitesQueryRq",
+        query_rs="ItemSitesQueryRs",
+        ret_element="ItemSitesRet",
         pk_field="ListID",
         is_transaction=False,
         supports_iterator=False,

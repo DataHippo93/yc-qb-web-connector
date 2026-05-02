@@ -608,20 +608,34 @@ def parse_class(el: etree._Element) -> dict:
     }
 
 
-def parse_inventory_site(el: etree._Element) -> dict:
-    """Parse InventorySiteRet — Multi-Site Inventory location list."""
+def parse_inventory_site(el: etree._Element) -> dict | None:
+    """Extract the InventorySite info from an ItemSitesRet row.
+
+    Each ItemSitesRet has a nested <InventorySiteRef> with ListID +
+    FullName. We don't care about the per-item quantities here — only
+    the site reference. The caller dedupes the returned dicts on
+    qb_list_id so 1378 ItemSitesRet rows (689 items × 2 sites) collapse
+    into 2 inventory_sites rows.
+    """
+    site_ref = el.find("InventorySiteRef")
+    if site_ref is None:
+        return None
+    list_id = _text(site_ref, "ListID")
+    full_name = _text(site_ref, "FullName")
+    if not list_id:
+        return None
     return {
-        "qb_list_id": _text(el, "ListID"),
-        "name": _text(el, "Name"),
-        "full_name": _text(el, "FullName"),
-        "is_active": _bool(el, "IsActive"),
-        "site_desc": _text(el, "SiteDesc"),
-        "contact": _text(el, "Contact"),
-        "phone": _text(el, "Phone"),
-        "email": _text(el, "Email"),
-        "time_created": _text(el, "TimeCreated"),
-        "time_modified": _text(el, "TimeModified"),
-        "edit_sequence": _text(el, "EditSequence"),
+        "qb_list_id": list_id,
+        "name": full_name,
+        "full_name": full_name,
+        "is_active": True,  # ItemSitesRet only includes active site refs
+        "site_desc": None,
+        "contact": None,
+        "phone": None,
+        "email": None,
+        "time_created": None,
+        "time_modified": None,
+        "edit_sequence": None,
     }
 
 
@@ -1110,7 +1124,11 @@ RESPONSE_PARSERS: dict[str, Any] = {
     # List objects (no lines)
     "AccountQueryRs": ("AccountRet", parse_account, False),
     "ClassQueryRs": ("ClassRet", parse_class, False),
-    "InventorySiteQueryRs": ("InventorySiteRet", parse_inventory_site, False),
+    # Inventory-site discovery rides on ItemSitesQueryRq — see
+    # parse_inventory_site() docstring + the special-case dispatch
+    # below that dedupes the per-item-per-site rows down to unique
+    # site refs.
+    "ItemSitesQueryRs": ("ItemSitesRet", parse_inventory_site, False),
     "SalesTaxCodeQueryRs": ("SalesTaxCodeRet", parse_sales_tax_code, False),
     "PaymentMethodQueryRs": ("PaymentMethodRet", parse_payment_method, False),
     "ShipMethodQueryRs": ("ShipMethodRet", parse_ship_method, False),
@@ -1239,6 +1257,20 @@ def parse_qbxml_response(xml_string: str, entity_type: str) -> ParsedResponse:
         for set_el in rs_el.findall("UnitOfMeasureSetRet"):
             records.extend(parse_unit_of_measure_set(set_el))
 
+    # ItemSitesQueryRs returns one row per (item, site). We only need
+    # the site refs, deduped by ListID, to build adk_fragrance.inventory_sites.
+    elif rs_tag == "ItemSitesQueryRs" or entity_type == "inventory_sites":
+        seen_site_ids: set[str] = set()
+        for ret_el in rs_el.findall("ItemSitesRet"):
+            row = parse_inventory_site(ret_el)
+            if not row:
+                continue
+            site_id = row["qb_list_id"]
+            if site_id in seen_site_ids:
+                continue
+            seen_site_ids.add(site_id)
+            records.append(row)
+
     # Specific parsers
     elif rs_tag in RESPONSE_PARSERS:
         ret_tag, parser_fn, has_lines = RESPONSE_PARSERS[rs_tag]
@@ -1247,7 +1279,9 @@ def parse_qbxml_response(xml_string: str, entity_type: str) -> ParsedResponse:
                 header, lines = parser_fn(ret_el)
                 records.append({"header": header, "lines": lines})
             else:
-                records.append(parser_fn(ret_el))
+                rec = parser_fn(ret_el)
+                if rec is not None:
+                    records.append(rec)
 
     # Generic fallback: serialize each Ret element to dict
     else:

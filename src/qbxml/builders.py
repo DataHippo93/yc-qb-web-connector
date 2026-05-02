@@ -229,36 +229,26 @@ def build_inventory_site_query(
     iterator_continue: bool = False,
     iterator_id: str | None = None,
 ) -> str:
-    """Build InventorySiteQueryRq — sites are list objects, no iterator
-    in current QB versions. Returns one row per site (Factory, Unspecified
-    Site, etc.) with ListID, Name, FullName, IsActive.
+    """Discover inventory sites via ItemSitesQueryRq.
 
-    Adds <ActiveStatus>All</ActiveStatus> so the query returns Factory
-    even if QB's default ActiveOnly filter is somehow excluding it.
-    Adds explicit <IncludeRetElementList> so QB returns the fields we
-    actually parse (some Enterprise + Advanced Inventory configurations
-    return empty lists when no IncludeRetElement is specified).
+    QB Enterprise's dedicated InventorySiteQueryRq returns "did not find a
+    matching object" for some Multi-Site Inventory configurations even
+    though sites obviously exist (per Stack Overflow #19428337 and our
+    own testing on ADK Fragrance). The reliable path is to query
+    per-item-per-site quantities via ItemSitesQueryRq — every returned
+    ItemSitesRet row carries the full <InventorySiteRef> (ListID +
+    FullName + IsActive) on its parent site, so we can dedupe by ListID
+    and recover the same site list.
+
+    Note the schema-name divergence: the entity is still called
+    'inventory_sites' on the MakerHub side; only the qbXML query name
+    + response parser changed.
     """
     attrs = {"requestID": request_id}
-    rq = Element("InventorySiteQueryRq", **attrs)
-    # ActiveStatus first per qbXML 13.0 schema ordering for list queries.
+    rq = Element("ItemSitesQueryRq", **attrs)
     SubElement(rq, "ActiveStatus").text = "All"
     if from_modified_date:
         SubElement(rq, "FromModifiedDate").text = from_modified_date
-    for field in [
-        "ListID",
-        "TimeCreated",
-        "TimeModified",
-        "EditSequence",
-        "Name",
-        "FullName",
-        "IsActive",
-        "SiteDesc",
-        "Contact",
-        "Phone",
-        "Email",
-    ]:
-        SubElement(rq, "IncludeRetElement").text = field
     return _build_qbxml_envelope(rq)
 
 
