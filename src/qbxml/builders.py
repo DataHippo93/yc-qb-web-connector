@@ -8,7 +8,11 @@ from xml.etree.ElementTree import Element, SubElement, tostring
 from xml.dom import minidom
 
 
-QBXML_VERSION = "13.0"
+# Bumped from 13.0 to 16.0 on 2026-05-02 to make <LotNumber> a valid element
+# under BuildAssemblyAdd (added in qbXML 16). qbXML schemas are
+# forward-compatible — older requests still parse fine under a newer declared
+# version. ADKFF runs QB Enterprise 24/25, which supports qbXML up to 16.0.
+QBXML_VERSION = "16.0"
 QBXML_HEADER = '<?xml version="1.0" encoding="utf-8"?>\n<?qbxml version="{version}"?>\n'
 
 
