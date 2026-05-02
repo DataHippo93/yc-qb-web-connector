@@ -45,6 +45,14 @@ class Settings(BaseSettings):
     qbxml_max_returned: int = 100
     sync_interval_minutes: int = 60
 
+    # MakerHub completion webhook (optional). When both are set, the
+    # write_queue manager fires a fire-and-forget POST to MAKERHUB_CALLBACK_URL
+    # whenever a build_assembly queue row reaches a terminal status, so
+    # MakerHub can update its mirror without waiting for the pg_cron poll.
+    # Auth: Authorization: Bearer <MAKERHUB_CALLBACK_SECRET>.
+    makerhub_callback_url: str = ""
+    makerhub_callback_secret: str = ""
+
     @field_validator("qb_supabase_url", mode="before")
     @classmethod
     def must_have_supabase_url(cls, v: str) -> str:

@@ -8,6 +8,10 @@ Lifecycle: pending → claimed → sent → completed/failed
 """
 from __future__ import annotations
 
+import json
+import threading
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from typing import Any
 
@@ -15,11 +19,80 @@ from supabase import Client
 
 from src.qbxml.builders import build_build_assembly_add, build_build_assembly_del
 from src.supabase.client import META_SCHEMA
+from src.utils.config import get_settings
 from src.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 WRITE_QUEUE_TABLE = "write_queue"
+
+
+def _notify_makerhub(
+    queue_id: int,
+    status: str,
+    qb_txn_id: str | None,
+    is_pending: bool | None,
+    error_message: str | None,
+) -> None:
+    """Fire-and-forget POST to MakerHub announcing a write_queue terminal
+    transition. The MakerHub-side pg_cron poll is the source-of-truth
+    fallback; this just shortens latency from ~60 s to sub-second when the
+    QBWC machine has outbound HTTPS to the MakerHub deployment.
+
+    No-op when MAKERHUB_CALLBACK_URL or MAKERHUB_CALLBACK_SECRET are
+    unset. Errors are logged at WARNING and never re-raised — failure to
+    notify must NOT roll back the QB write.
+    """
+    settings = get_settings()
+    url = settings.makerhub_callback_url
+    secret = settings.makerhub_callback_secret
+    if not url or not secret:
+        return
+
+    payload = json.dumps(
+        {
+            "queue_id": queue_id,
+            "status": status,
+            "qb_txn_id": qb_txn_id,
+            "is_pending": is_pending,
+            "error_message": error_message,
+        }
+    ).encode("utf-8")
+
+    def _post() -> None:
+        try:
+            req = urllib.request.Request(
+                url,
+                data=payload,
+                method="POST",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {secret}",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status >= 300:
+                    logger.warning(
+                        "makerhub_callback_non_2xx",
+                        queue_id=queue_id,
+                        http_status=resp.status,
+                    )
+        except urllib.error.URLError as e:
+            logger.warning(
+                "makerhub_callback_failed",
+                queue_id=queue_id,
+                error=str(e),
+            )
+        except Exception as e:  # never let this take down the QB write
+            logger.warning(
+                "makerhub_callback_exception",
+                queue_id=queue_id,
+                error=str(e),
+            )
+
+    # Daemon thread = doesn't block the QBWC response cycle and dies with
+    # the process if the connector restarts mid-flight.
+    threading.Thread(target=_post, daemon=True).start()
 
 
 class WriteQueueManager:
@@ -198,6 +271,13 @@ class WriteQueueManager:
             txn_id=txn_id,
             is_pending=is_pending,
         )
+        _notify_makerhub(
+            queue_id=queue_id,
+            status="completed",
+            qb_txn_id=txn_id,
+            is_pending=is_pending,
+            error_message=None,
+        )
 
     def mark_failed(self, queue_id: int, error: str) -> None:
         """
@@ -219,6 +299,13 @@ class WriteQueueManager:
                 "completed_at": datetime.now(timezone.utc).isoformat(),
             }).eq("id", queue_id).execute()
             logger.error("write_permanently_failed", queue_id=queue_id, error=error)
+            _notify_makerhub(
+                queue_id=queue_id,
+                status="failed",
+                qb_txn_id=None,
+                is_pending=None,
+                error_message=error,
+            )
         else:
             # Reset to pending for retry on next cycle
             self._table().update({
