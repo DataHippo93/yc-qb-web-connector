@@ -70,6 +70,7 @@ companies:
       - inventory_items
       - assembly_bom
       - inventory_sites
+      - build_assemblies
       - purchase_orders
       - item_receipts
       - bills

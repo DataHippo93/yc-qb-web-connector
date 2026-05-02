@@ -545,6 +545,31 @@ def build_preferences_query(request_id: str = "1") -> str:
     return _build_qbxml_envelope(rq)
 
 
+def build_build_assembly_query(
+    request_id: str = "1",
+    from_modified_date: str | None = None,
+    max_returned: int = 10,
+    iterator_start: bool = False,
+    iterator_continue: bool = False,
+    iterator_id: str | None = None,
+) -> str:
+    """Probe BuildAssembly txn #5050 to extract InventorySiteRef.
+
+    ADK Fragrance one-shot diagnostic: ItemSitesQueryRs rows on this QB
+    file have NO <InventorySiteRef> child, so we can't seed the Factory
+    site list from item-site queries. Tracy created BuildAssembly
+    RefNumber=5050 manually with "Factory" selected - if QB stamped
+    <InventorySiteRef> on that transaction, querying it back gives us
+    Factory's ListID + FullName. The response is captured raw in
+    qb_meta.sync_log.debug_response_xml; no upsert table is wired.
+    """
+    attrs = {"requestID": request_id}
+    rq = Element("BuildAssemblyQueryRq", **attrs)
+    SubElement(rq, "RefNumber").text = "5050"
+    SubElement(rq, "IncludeLineItems").text = "true"
+    return _build_qbxml_envelope(rq)
+
+
 # Dispatcher: map entity name -> build function
 # For entities without specialized builders, fall back to generic
 QUERY_BUILDERS = {
@@ -555,6 +580,7 @@ QUERY_BUILDERS = {
     "inventory_items": build_generic_query,
     "assembly_bom": build_assembly_bom_query,
     "inventory_sites": build_inventory_site_query,
+    "build_assemblies": build_build_assembly_query,
     "invoices": build_invoice_query,
     "item_receipts": build_item_receipt_query,
     "journal_entries": build_journal_entry_query,

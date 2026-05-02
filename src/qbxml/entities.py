@@ -228,6 +228,25 @@ ENTITY_REGISTRY: list[EntityDef] = [
         max_returned=100,
         sync_priority=200,
     ),
+    # ADK Fragrance probe: read BuildAssembly txn #5050 (manually created with
+    # Factory site selected) to extract InventorySiteRef ListID. ItemSitesQueryRq
+    # response on this QB file lacks <InventorySiteRef> on every row, so we
+    # reverse-engineer the Factory site from the existing build txn instead.
+    # No table mapping in upsert.py - the response just gets captured in
+    # qb_meta.sync_log.debug_response_xml for inspection.
+    EntityDef(
+        name="build_assemblies",
+        query_rq="BuildAssemblyQueryRq",
+        query_rs="BuildAssemblyQueryRs",
+        ret_element="BuildAssemblyRet",
+        pk_field="TxnID",
+        is_transaction=True,
+        supports_iterator=False,
+        supports_modified_filter=False,
+        supports_txn_date_filter=False,
+        max_returned=10,
+        sync_priority=201,
+    ),
     EntityDef(
         name="item_receipts",
         query_rq="ItemReceiptQueryRq",
