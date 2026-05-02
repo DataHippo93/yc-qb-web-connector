@@ -13,7 +13,7 @@ from typing import Any
 
 from supabase import Client
 
-from src.qbxml.builders import build_build_assembly_add
+from src.qbxml.builders import build_build_assembly_add, build_build_assembly_del
 from src.supabase.client import META_SCHEMA
 from src.utils.logging import get_logger
 
@@ -256,6 +256,16 @@ class WriteQueueManager:
                 inventory_site_name=payload.get("inventory_site_name"),
                 request_id=request_id,
             )
+
+        if operation == "delete_build_assembly":
+            txn_id = payload.get("txn_id") or payload.get("qb_txn_id")
+            if not txn_id:
+                logger.warning(
+                    "delete_build_assembly_missing_txn_id",
+                    queue_id=queue_item.get("id"),
+                )
+                return None
+            return build_build_assembly_del(txn_id=txn_id, request_id=request_id)
 
         logger.warning("unknown_write_operation", operation=operation)
         return None
