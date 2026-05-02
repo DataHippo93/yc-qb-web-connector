@@ -499,8 +499,16 @@ def build_build_assembly_add(
     if memo:
         SubElement(add, "Memo").text = memo
 
-    # QuantityToBuild is required
-    SubElement(add, "QuantityToBuild").text = str(quantity)
+    # QuantityToBuild is required. Round to integer because most QB Enterprise
+    # assembly items don't have "Use decimal quantities" enabled per-item and
+    # reject fractional values with QB error 3060 ("There was an error when
+    # converting the quantity ... in the field QuantityToBuild"). MakerHub
+    # passes lab-batch-derived fractional quantities (e.g. 19379.844961240313
+    # in write_queue id=65 on 2026-05-02); we round here so the connector
+    # handles it transparently rather than requiring upstream coercion. If a
+    # specific item DOES have decimal precision enabled, this loses sub-unit
+    # precision -- revisit per-item if that matters.
+    SubElement(add, "QuantityToBuild").text = str(int(round(quantity)))
 
     # MarkPendingIfRequired comes after QuantityToBuild per the qbXML 13.0 schema.
     if mark_pending_if_required:
