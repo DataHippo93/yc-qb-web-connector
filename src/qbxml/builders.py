@@ -246,6 +246,13 @@ def build_inventory_site_query(
     """
     attrs = {"requestID": request_id}
     rq = Element("ItemSitesQueryRq", **attrs)
+    # qbXML 13.0 ItemSitesQueryRq schema ordering:
+    #   {ItemSiteFilter | MaxReturned}, ItemSiteWithInventoryAssemblyOnly,
+    #   ActiveStatus, FromModifiedDate, ToModifiedDate, IncludeRetElementList
+    # MaxReturned is required when no filter is supplied, and ActiveStatus
+    # must follow it. Out-of-order children → COM parser rejects with
+    # error 0x80040400 before QB ever sees the request.
+    SubElement(rq, "MaxReturned").text = str(max_returned)
     SubElement(rq, "ActiveStatus").text = "All"
     if from_modified_date:
         SubElement(rq, "FromModifiedDate").text = from_modified_date
