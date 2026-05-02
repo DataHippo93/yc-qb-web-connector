@@ -345,6 +345,7 @@ def build_build_assembly_add(
     memo: str | None = None,
     mark_pending_if_required: bool = False,
     inventory_site_name: str | None = None,
+    lot_number: str | None = None,
     request_id: str = "1",
 ) -> str:
     """
@@ -360,15 +361,22 @@ def build_build_assembly_add(
             so QB records the build as pending when one or more components are short
             (instead of failing with error 3370). Response <IsPending> tells the caller
             whether QB ended up marking it pending.
-        inventory_site_name: Optional inventory site (QB Enterprise only)
+        inventory_site_name: Optional inventory site (QB Enterprise only).
+            The single InventorySiteRef on BuildAssemblyAdd governs both the
+            output site AND component consumption per qbXML 13.0.
+        lot_number: Optional lot number for the assembled OUTPUT (QB
+            Enterprise + Advanced Inventory). For ADK Fragrance this is
+            the MakerHub batch_number so QB's lot is traceable back to
+            the lab batch record.
         request_id: Request ID for the qbXML envelope
 
     XML element ordering follows the qbXML 13.0 schema for BuildAssemblyAdd:
-    ItemInventoryAssemblyRef, TxnDate, RefNumber, InventorySiteRef, Memo,
-    QuantityToBuild, MarkPendingIfRequired. The previous (972dd18) ordering
-    placed MarkPendingIfRequired before QuantityToBuild, which caused QB to
-    reject the request at the COM/schema layer and the response was lost
-    (no qbXML response was returned to the connector).
+    ItemInventoryAssemblyRef, TxnDate, RefNumber, InventorySiteRef,
+    SerialNumber, LotNumber, Memo, QuantityToBuild, MarkPendingIfRequired.
+    The previous (972dd18) ordering placed MarkPendingIfRequired before
+    QuantityToBuild, which caused QB to reject the request at the COM/schema
+    layer and the response was lost (no qbXML response was returned to the
+    connector).
     """
     rq = Element("BuildAssemblyAddRq", requestID=request_id)
     add = SubElement(rq, "BuildAssemblyAdd")
@@ -386,6 +394,12 @@ def build_build_assembly_add(
     if inventory_site_name:
         site_ref = SubElement(add, "InventorySiteRef")
         SubElement(site_ref, "FullName").text = inventory_site_name
+
+    # SerialNumber and LotNumber follow InventorySiteRef and precede Memo
+    # per the qbXML 13.0 schema. Only one is allowed (assemblies are either
+    # serial- or lot-tracked, not both); ADK Fragrance uses lot.
+    if lot_number:
+        SubElement(add, "LotNumber").text = lot_number
 
     if memo:
         SubElement(add, "Memo").text = memo

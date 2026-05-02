@@ -45,6 +45,7 @@ class WriteQueueManager:
         memo: str | None = None,
         mark_pending_if_required: bool = False,
         inventory_site_name: str | None = None,
+        lot_number: str | None = None,
         external_id: str | None = None,
         external_source: str | None = None,
         depends_on_write_id: int | None = None,
@@ -74,6 +75,8 @@ class WriteQueueManager:
             payload["mark_pending_if_required"] = True
         if inventory_site_name:
             payload["inventory_site_name"] = inventory_site_name
+        if lot_number:
+            payload["lot_number"] = lot_number
 
         # When a dependency is declared, mark the row 'cascade_waiting' so the
         # dispatcher (which only claims status='pending') skips it. The
@@ -254,6 +257,7 @@ class WriteQueueManager:
                     payload.get("mark_pending_if_required", False)
                 ),
                 inventory_site_name=payload.get("inventory_site_name"),
+                lot_number=payload.get("lot_number"),
                 request_id=request_id,
             )
 
