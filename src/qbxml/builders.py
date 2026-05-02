@@ -476,25 +476,15 @@ def build_build_assembly_add(
         site_ref = SubElement(add, "InventorySiteRef")
         SubElement(site_ref, "FullName").text = inventory_site_name
 
-    # LotNumber on BuildAssemblyAdd: INTENTIONALLY OMITTED until we verify
-    # the correct qbXML-16+ schema placement. Even after bumping QBXML_VERSION
-    # to "16.0", placing <LotNumber> as a direct child of <BuildAssemblyAdd>
-    # still triggered parser error 0x80040400 (write_queue id=64, 2026-05-02).
-    # The element likely needs a wrapper (e.g. <SerialNumberOrLotNumber>) or
-    # belongs on a different sub-element. The lot value is preserved in
-    # write_queue.payload['lot_number'] for re-emission once the schema is
-    # confirmed against an Intuit working sample. Keeping the parameter so
-    # callers (MakerHub) don't need to change — just no XML side effect yet.
+    # LotNumber on BuildAssemblyAdd: re-enabled 2026-05-02 after PreferencesQueryRq
+    # confirmed IsTrackingSerialOrLotNumber=LotNumber is enabled and qbXML version
+    # is 16.0. Earlier failure (write_queue id=64) attributed to <InventorySiteRef>
+    # combined with <LotNumber>; cascade route now sends <FullName> for site
+    # (instead of the unverified <ListID>) which QB resolves server-side.
+    # Per qbXML 16 schema, LotNumber is a direct child of BuildAssemblyAdd
+    # between InventorySiteRef and Memo.
     if lot_number:
-        logger.debug(
-            "build_assembly_lot_number_dropped",
-            lot_number=lot_number,
-            assembly_list_id=assembly_list_id,
-            reason="qbxml-16-lot-placement-unverified",
-        )
-    # Original (still-broken) attempt was:
-    #     if lot_number:
-    #         SubElement(add, "LotNumber").text = lot_number
+        SubElement(add, "LotNumber").text = lot_number
 
     if memo:
         SubElement(add, "Memo").text = memo
@@ -673,48 +663,4 @@ def build_query_for_entity(
                 from_modified_date=from_modified_date,
                 to_modified_date=to_modified_date,
                 max_returned=max_returned,
-                iterator_start=iterator_start,
-                iterator_continue=iterator_continue,
-                iterator_id=iterator_id,
-            )
-        if entity_name in BACKFILL_AWARE:
-            return builder(
-                request_id=request_id,
-                from_modified_date=from_modified_date,
-                to_modified_date=to_modified_date,
-                from_txn_date=from_txn_date,
-                to_txn_date=to_txn_date,
-                max_returned=max_returned,
-                iterator_start=iterator_start,
-                iterator_continue=iterator_continue,
-                iterator_id=iterator_id,
-            )
-        return builder(
-            request_id=request_id,
-            from_modified_date=from_modified_date,
-            max_returned=max_returned,
-            iterator_start=iterator_start,
-            iterator_continue=iterator_continue,
-            iterator_id=iterator_id,
-        )
-    else:
-        from src.qbxml.entities import ENTITY_BY_NAME
-        edef = ENTITY_BY_NAME.get(entity_name)
-        is_txn = edef.is_transaction if edef else False
-        has_lines = is_txn and entity_name not in (
-            "bill_payments", "receive_payments", "transfers", "time_tracking",
-        )
-        return build_generic_query(
-            query_rq=query_rq,
-            request_id=request_id,
-            from_modified_date=from_modified_date,
-            to_modified_date=to_modified_date,
-            from_txn_date=from_txn_date if is_txn else None,
-            to_txn_date=to_txn_date if is_txn else None,
-            max_returned=max_returned,
-            iterator_start=iterator_start,
-            iterator_continue=iterator_continue,
-            iterator_id=iterator_id,
-            is_transaction=is_txn,
-            include_line_items=has_lines,
-        )
+      
