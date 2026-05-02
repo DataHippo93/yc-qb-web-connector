@@ -387,7 +387,14 @@ class SyncCoordinator:
                     records_synced=0,
                     is_full_sync=not task.is_incremental,
                 )
-            self._state.log_run_done(task.log_id, records_synced=0)
+            # Stash the raw response so we can introspect WHY it was empty
+            # (Multi-Site / lot-tracking permission, missing IncludeRetElement,
+            # legitimately no rows, etc). Truncated to 4KB on the row.
+            self._state.log_run_done(
+                task.log_id,
+                records_synced=0,
+                debug_response_xml=response_xml,
+            )
             session.advance_task()
             return session.progress_pct
 
@@ -483,7 +490,11 @@ class SyncCoordinator:
                     entity=task.entity_type, records=task.records_processed,
                     schema=pg_schema,
                 )
-            self._state.log_run_done(task.log_id, records_synced=task.records_processed)
+            self._state.log_run_done(
+                task.log_id,
+                records_synced=task.records_processed,
+                debug_response_xml=response_xml if task.records_processed == 0 else None,
+            )
             session.advance_task()
 
         return session.progress_pct

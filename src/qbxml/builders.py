@@ -233,15 +233,32 @@ def build_inventory_site_query(
     in current QB versions. Returns one row per site (Factory, Unspecified
     Site, etc.) with ListID, Name, FullName, IsActive.
 
-    InventorySite is the QB Enterprise Multi-Site Inventory list. ADK
-    Fragrance: Factory + Unspecified Site. We need ListID (not FullName)
-    to write InventorySiteRef on a BuildAssemblyAdd because qbXML 13.0+
-    rejects <FullName> for site refs in BuildAssembly contexts.
+    Adds <ActiveStatus>All</ActiveStatus> so the query returns Factory
+    even if QB's default ActiveOnly filter is somehow excluding it.
+    Adds explicit <IncludeRetElementList> so QB returns the fields we
+    actually parse (some Enterprise + Advanced Inventory configurations
+    return empty lists when no IncludeRetElement is specified).
     """
     attrs = {"requestID": request_id}
     rq = Element("InventorySiteQueryRq", **attrs)
+    # ActiveStatus first per qbXML 13.0 schema ordering for list queries.
+    SubElement(rq, "ActiveStatus").text = "All"
     if from_modified_date:
         SubElement(rq, "FromModifiedDate").text = from_modified_date
+    for field in [
+        "ListID",
+        "TimeCreated",
+        "TimeModified",
+        "EditSequence",
+        "Name",
+        "FullName",
+        "IsActive",
+        "SiteDesc",
+        "Contact",
+        "Phone",
+        "Email",
+    ]:
+        SubElement(rq, "IncludeRetElement").text = field
     return _build_qbxml_envelope(rq)
 
 

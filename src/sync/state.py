@@ -195,15 +195,31 @@ class SyncStateManager:
             logger.warning("sync_log_insert_failed", error=str(e))
             return None
 
-    def log_run_done(self, log_id: int | None, records_synced: int) -> None:
+    def log_run_done(
+        self,
+        log_id: int | None,
+        records_synced: int,
+        debug_response_xml: str | None = None,
+    ) -> None:
+        """Mark a sync_log row as done. When records_synced=0 and a raw qbXML
+        response is supplied, stash a truncated copy on the row so empty-result
+        mysteries can be diagnosed without log-tailing the connector."""
         if log_id is None:
             return
         try:
-            self._client.schema(META_SCHEMA).table("sync_log").update({
+            update: dict = {
                 "status": "done",
                 "completed_at": datetime.now(timezone.utc).isoformat(),
                 "records_synced": records_synced,
-            }).eq("id", log_id).execute()
+            }
+            if records_synced == 0 and debug_response_xml:
+                update["debug_response_xml"] = debug_response_xml[:4000]
+            else:
+                # Clear any prior debug payload on a successful (non-zero) sync
+                update["debug_response_xml"] = None
+            self._client.schema(META_SCHEMA).table("sync_log").update(update).eq(
+                "id", log_id
+            ).execute()
         except Exception as e:
             logger.warning("sync_log_update_failed", error=str(e))
 
