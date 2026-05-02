@@ -246,16 +246,16 @@ def build_inventory_site_query(
     """
     attrs = {"requestID": request_id}
     rq = Element("ItemSitesQueryRq", **attrs)
-    # qbXML 13.0 ItemSitesQueryRq schema ordering:
-    #   {ItemSiteFilter | MaxReturned}, ItemSiteWithInventoryAssemblyOnly,
-    #   ActiveStatus, FromModifiedDate, ToModifiedDate, IncludeRetElementList
-    # MaxReturned is required when no filter is supplied, and ActiveStatus
-    # must follow it. Out-of-order children → COM parser rejects with
-    # error 0x80040400 before QB ever sees the request.
-    SubElement(rq, "MaxReturned").text = str(max_returned)
-    SubElement(rq, "ActiveStatus").text = "All"
-    if from_modified_date:
-        SubElement(rq, "FromModifiedDate").text = from_modified_date
+    # Bare query — no children at all. Two earlier attempts with
+    # MaxReturned/ActiveStatus both hit COM parse error 0x80040400 even
+    # in the schema-correct order, suggesting either the element name
+    # itself isn't supported in our qbXML 13.0 envelope or there's a
+    # subtle schema mismatch. Strip all children to test whether the
+    # root element is even recognised. If the bare version errors too,
+    # the qbXML version (currently 13.0) needs to drop to 10.0 — that's
+    # the version the SO example used and presumably the version where
+    # ItemSites was first/last fully working before the dedicated
+    # InventorySiteQueryRq supplanted it.
     return _build_qbxml_envelope(rq)
 
 
