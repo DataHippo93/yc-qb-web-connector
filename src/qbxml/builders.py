@@ -563,9 +563,14 @@ def build_build_assembly_query(
     Factory's ListID + FullName. The response is captured raw in
     qb_meta.sync_log.debug_response_xml; no upsert table is wired.
     """
+    # Bare <RefNumber>5050</RefNumber> filter on BuildAssemblyQueryRq triggers
+    # parser error 0x80040400 in qbXML 13.0 - the schema for this query doesn't
+    # accept a top-level RefNumber. MaxReturned alone returns the most recent
+    # builds; we'll find #5050 in the response (or the most recent one carrying
+    # an InventorySiteRef, which is what we actually need).
     attrs = {"requestID": request_id}
     rq = Element("BuildAssemblyQueryRq", **attrs)
-    SubElement(rq, "RefNumber").text = "5050"
+    SubElement(rq, "MaxReturned").text = "10"
     SubElement(rq, "IncludeLineItems").text = "true"
     return _build_qbxml_envelope(rq)
 
