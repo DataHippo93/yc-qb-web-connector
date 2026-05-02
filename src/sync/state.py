@@ -217,9 +217,7 @@ class SyncStateManager:
             else:
                 # Clear any prior debug payload on a successful (non-zero) sync
                 update["debug_response_xml"] = None
-            self._client.schema(META_SCHEMA).table("sync_log").update(update).eq(
-                "id", log_id
-            ).execute()
+            self._client.schema(META_SCHEMA).table("sync_log").update(update).eq("id", log_id).execute()
         except Exception as e:
             logger.warning("sync_log_update_failed", error=str(e))
 

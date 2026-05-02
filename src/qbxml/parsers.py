@@ -1453,7 +1453,7 @@ def parse_write_response(xml_string: str) -> WriteResponse:
         return WriteResponse(
             success=False, status_code=-1,
             status_message=(
-                f"No Add/Mod response element found | "
+                f"No Add/Mod/Del response element found | "
                 f"QBXMLMsgsRs children={child_tags} | RAW: {raw_preview}"
             ),
             request_id=None,
@@ -1474,27 +1474,22 @@ def parse_write_response(xml_string: str) -> WriteResponse:
             status_message=status_message, request_id=request_id,
         )
 
-    # For Add/Mod responses the Ret element wraps the result
-    # (e.g. BuildAssemblyRet). For Del responses (TxnDelRs) the fields
-    # are direct children of rs_el (TxnID, TxnDelType, TimeDeleted).
+    # Extract the Ret element (e.g. BuildAssemblyRet)
     ret_el = None
-    is_del = rs_el.tag.endswith("DelRs")
-    if not is_del:
-        for child in rs_el:
-            if child.tag.endswith("Ret"):
-                ret_el = child
-                break
-    field_source = ret_el if ret_el is not None else (rs_el if is_del else None)
+    for child in rs_el:
+        if child.tag.endswith("Ret"):
+            ret_el = child
+            break
 
     txn_id = None
     txn_number = None
     edit_sequence = None
     is_pending = None
-    if field_source is not None:
-        txn_id = _text(field_source, "TxnID")
-        txn_number = _text(field_source, "RefNumber")
-        edit_sequence = _text(field_source, "EditSequence")
-        is_pending = _bool(field_source, "IsPending")
+    if ret_el is not None:
+        txn_id = _text(ret_el, "TxnID")
+        txn_number = _text(ret_el, "RefNumber")
+        edit_sequence = _text(ret_el, "EditSequence")
+        is_pending = _bool(ret_el, "IsPending")
 
     return WriteResponse(
         success=True,

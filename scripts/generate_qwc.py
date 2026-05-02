@@ -50,6 +50,16 @@ QWC_TEMPLATE = """\
   </Scheduler>
   <IsReadOnly>false</IsReadOnly>
   <Notify>false</Notify>
+  <!-- Unattended mode: QBWC opens the bound company file in the background,
+       runs the sync, and closes QB if QBWC started it. The QB user that owns
+       this app must have "Allow this application to login automatically"
+       enabled per company file (Edit > Preferences > Integrated Applications).
+       umpRequired = the app refuses to run interactively. -->
+  <UnattendedModePref>umpRequired</UnattendedModePref>
+  <!-- pdpNotNeeded = the app does not need access to personal data
+       (SSN, full credit card numbers). The QB dialog's "Allow this
+       application to access personal data" checkbox should be left UNCHECKED. -->
+  <PersonalDataPref>pdpNotNeeded</PersonalDataPref>
 </QBWCXML>
 """
 

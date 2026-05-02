@@ -56,6 +56,7 @@ companies:
     sync_interval_minutes: 60
     max_returned: 100
     enabled_entities:
+      - qb_preferences
       - accounts
       - classes
       - sales_tax_codes

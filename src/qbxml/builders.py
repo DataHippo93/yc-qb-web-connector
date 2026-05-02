@@ -539,8 +539,18 @@ def build_host_query(request_id: str = "1") -> str:
     return _build_qbxml_envelope(rq)
 
 
-def build_preferences_query(request_id: str = "1") -> str:
-    """Retrieve QB preferences."""
+def build_preferences_query(
+    request_id: str = "1",
+    **_ignored,
+) -> str:
+    """Retrieve QB preferences (PreferencesQueryRq).
+
+    Kwargs from the dispatcher (from_modified_date, max_returned, iterator_*)
+    are accepted and ignored — PreferencesQueryRq has no filter or iterator.
+    Used as a one-shot probe entity ``qb_preferences``: response lands raw in
+    qb_meta.sync_log.debug_response_xml so we can read <ItemsAndInventoryPreferences>
+    to confirm whether Multi-Site Inventory is actually configured at the SDK
+    level (vs. UI-only)."""
     rq = Element("PreferencesQueryRq", requestID=request_id)
     return _build_qbxml_envelope(rq)
 
@@ -572,8 +582,18 @@ def build_build_assembly_query(
     # triggered parser error 0x80040400. Try bare element (no children) like
     # ItemSitesQueryRq required - if even bare fails, BuildAssemblyQueryRq isn't
     # recognised by this QB file's qbXML implementation and we accept defeat.
+    # PROBE rev4: MaxReturned alone (no IncludeLineItems) — smallest valid
+    # filter group per qbXML 13.0 schema. Earlier variants tried:
+    #   rev1: <RefNumber>5050</RefNumber><IncludeLineItems>true</...>  -> 0x80040400
+    #   rev2: <MaxReturned>10</...><IncludeLineItems>true</...>        -> 0x80040400
+    #   rev3: bare <BuildAssemblyQueryRq/>                              -> 0x80040400
+    # If rev4 also 0x80040400s, BuildAssemblyQueryRq isn't recognized in
+    # this company file's qbXML 13.0 schema regardless of how we shape
+    # the body — next step is qbXML version drop (12.0/11.0) or manual
+    # ListID seeding from QB IIF export.
     attrs = {"requestID": request_id}
     rq = Element("BuildAssemblyQueryRq", **attrs)
+    SubElement(rq, "MaxReturned").text = "1"
     return _build_qbxml_envelope(rq)
 
 
@@ -588,6 +608,7 @@ QUERY_BUILDERS = {
     "assembly_bom": build_assembly_bom_query,
     "inventory_sites": build_inventory_site_query,
     "build_assemblies": build_build_assembly_query,
+    "qb_preferences": build_preferences_query,
     "invoices": build_invoice_query,
     "item_receipts": build_item_receipt_query,
     "journal_entries": build_journal_entry_query,

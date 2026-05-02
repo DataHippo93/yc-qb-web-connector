@@ -26,6 +26,20 @@ class EntityDef:
 
 # Complete entity registry in sync order
 ENTITY_REGISTRY: list[EntityDef] = [
+    # ========== Phase 0: Diagnostic probe (no upsert) ==========
+    EntityDef(
+        name="qb_preferences",
+        query_rq="PreferencesQueryRq",
+        query_rs="PreferencesQueryRs",
+        ret_element="PreferencesRet",
+        pk_field="ListID",          # unused (no ENTITY_TABLE_MAP entry)
+        is_transaction=False,
+        supports_iterator=False,
+        supports_modified_filter=False,
+        supports_txn_date_filter=False,
+        max_returned=1,
+        sync_priority=5,            # earliest data task; runs after identity check
+    ),
     # ========== Phase 1: Reference Data (Lists) ==========
     EntityDef(
         name="accounts",

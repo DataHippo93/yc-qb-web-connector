@@ -263,11 +263,20 @@ def _handle_receive_response_xml(method_el: etree._Element) -> bytes:
             session.active_write_id = None
         elif session.current_task:
             state_mgr = SyncStateManager(get_supabase_client())
-            state_mgr.mark_error(session.company_id, session.current_task.entity_type, error_msg)
-            session.current_task.completed_at = datetime.now(timezone.utc).isoformat()
+            failed_task = session.current_task
+            state_mgr.mark_error(session.company_id, failed_task.entity_type, error_msg)
+            # Close out the sync_log row that log_run_started opened — without
+            # this, the row stays in status='running' forever and the entity
+            # looks "in progress" to /status long after the session ended.
+            state_mgr.log_run_error(failed_task.log_id, error_msg)
+            failed_task.completed_at = datetime.now(timezone.utc).isoformat()
+            failed_task.error = error_msg
             session.advance_task()
         store.save(session)
-        return _int_response("receiveResponseXMLResponse", "receiveResponseXMLResult", session.progress_pct)
+        # Returning 100 tells QBWC we're done — prevents the retry loop where
+        # QBWC re-sends the same request that just COM-errored. Better to abort
+        # the session and let the next 10-min cycle start fresh than churn here.
+        return _int_response("receiveResponseXMLResponse", "receiveResponseXMLResult", 100)
 
     coordinator = _make_coordinator()
     pct = coordinator.handle_response(session, response)
@@ -286,6 +295,21 @@ def _handle_close_connection(method_el: etree._Element) -> bytes:
     session = store.get(ticket)
 
     if session:
+        # Sweep up any sync_log rows still in 'running' for this ticket so
+        # they don't stay stuck forever. This is the universal safety net for
+        # the "QBWC died mid-session" case where neither receiveResponseXML
+        # nor connectionError got a chance to mark a task done/errored.
+        try:
+            client = get_supabase_client()
+            from src.supabase.client import META_SCHEMA
+            client.schema(META_SCHEMA).table("sync_log").update({
+                "status": "aborted",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "error_message": "Session closed before this entity finished",
+            }).eq("ticket", ticket).eq("status", "running").execute()
+        except Exception as e:
+            logger.warning("sync_log_sweep_failed", ticket=ticket, error=str(e))
+
         if session.errors:
             logger.warning(
                 "session_closed_with_errors",
@@ -318,13 +342,29 @@ def _handle_connection_error(method_el: etree._Element) -> bytes:
     session = store.get(ticket)
     if session:
         session.status = "error"
+        err_text = f"Connection error: {hresult} {message}"
         if session.current_task:
             state_mgr = SyncStateManager(get_supabase_client())
             state_mgr.mark_error(
                 session.company_id,
                 session.current_task.entity_type,
-                f"Connection error: {hresult} {message}",
+                err_text,
             )
+            # Close out the sync_log row for the current task — same fix as
+            # in receiveResponseXML hresult branch. Without this, the row stays
+            # in 'running' indefinitely.
+            state_mgr.log_run_error(session.current_task.log_id, err_text)
+        # Sweep any other still-running rows for this ticket too (safety net).
+        try:
+            client = get_supabase_client()
+            from src.supabase.client import META_SCHEMA
+            client.schema(META_SCHEMA).table("sync_log").update({
+                "status": "aborted",
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "error_message": f"Aborted by QBWC connectionError: {err_text}",
+            }).eq("ticket", ticket).eq("status", "running").execute()
+        except Exception as e:
+            logger.warning("sync_log_sweep_failed_conn_err", ticket=ticket, error=str(e))
         store.delete(ticket)
 
     return _string_response("connectionErrorResponse", "connectionErrorResult", "done")
