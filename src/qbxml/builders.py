@@ -663,4 +663,48 @@ def build_query_for_entity(
                 from_modified_date=from_modified_date,
                 to_modified_date=to_modified_date,
                 max_returned=max_returned,
-      
+                iterator_start=iterator_start,
+                iterator_continue=iterator_continue,
+                iterator_id=iterator_id,
+            )
+        if entity_name in BACKFILL_AWARE:
+            return builder(
+                request_id=request_id,
+                from_modified_date=from_modified_date,
+                to_modified_date=to_modified_date,
+                from_txn_date=from_txn_date,
+                to_txn_date=to_txn_date,
+                max_returned=max_returned,
+                iterator_start=iterator_start,
+                iterator_continue=iterator_continue,
+                iterator_id=iterator_id,
+            )
+        return builder(
+            request_id=request_id,
+            from_modified_date=from_modified_date,
+            max_returned=max_returned,
+            iterator_start=iterator_start,
+            iterator_continue=iterator_continue,
+            iterator_id=iterator_id,
+        )
+    else:
+        from src.qbxml.entities import ENTITY_BY_NAME
+        edef = ENTITY_BY_NAME.get(entity_name)
+        is_txn = edef.is_transaction if edef else False
+        has_lines = is_txn and entity_name not in (
+            "bill_payments", "receive_payments", "transfers", "time_tracking",
+        )
+        return build_generic_query(
+            query_rq=query_rq,
+            request_id=request_id,
+            from_modified_date=from_modified_date,
+            to_modified_date=to_modified_date,
+            from_txn_date=from_txn_date if is_txn else None,
+            to_txn_date=to_txn_date if is_txn else None,
+            max_returned=max_returned,
+            iterator_start=iterator_start,
+            iterator_continue=iterator_continue,
+            iterator_id=iterator_id,
+            is_transaction=is_txn,
+            include_line_items=has_lines,
+        )
