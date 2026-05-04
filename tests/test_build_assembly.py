@@ -39,7 +39,7 @@ class TestBuildAssemblyAddBuilder:
 
         qty = add.find("QuantityToBuild")
         assert qty is not None
-        assert qty.text == "10.0"
+        assert qty.text == "10"  # connector rounds to int (qbXML quantity must be integer)
 
     def test_with_all_fields(self):
         xml = build_build_assembly_add(
@@ -59,7 +59,7 @@ class TestBuildAssemblyAddBuilder:
         assert add.find("TxnDate").text == "2026-04-14"
         assert add.find("RefNumber").text == "BATCH-001"
         assert add.find("Memo").text == "MakerHub batch #123"
-        assert add.find("QuantityToBuild").text == "5.5"
+        assert add.find("QuantityToBuild").text == "6"  # 5.5 rounds to 6 (int requirement)
         assert add.find("InventorySiteRef/FullName").text == "Main Warehouse"
 
     def test_no_optional_fields(self):
@@ -80,7 +80,7 @@ class TestBuildAssemblyAddBuilder:
             quantity=1,
         )
         assert '<?xml version="1.0"' in xml
-        assert '<?qbxml version="13.0"?>' in xml
+        assert '<?qbxml version="16.0"?>' in xml  # bumped 2026-05 to enable <LotNumber>
 
     def test_element_order(self):
         """QB requires elements in a specific order per the SDK spec."""
@@ -99,6 +99,101 @@ class TestBuildAssemblyAddBuilder:
         assert tags.index("TxnDate") < tags.index("QuantityToBuild")
         assert tags.index("RefNumber") < tags.index("QuantityToBuild")
         assert tags.index("Memo") < tags.index("QuantityToBuild")
+
+    # ------------------------------------------------------------------
+    # Multi-Site + Lot tagging regressions (qbXML 16 schema).
+    # Locks in the working element order + form for InventorySiteRef and
+    # LotNumber so we can't silently regress the path that took multiple
+    # iterations to find. Verified working against ADK Fragrance prod
+    # 2026-05-04 (write_queue id=...).
+    # ------------------------------------------------------------------
+    def test_inventory_site_ref_fullname(self):
+        """Site is emitted as <InventorySiteRef><FullName>..."""
+        xml = build_build_assembly_add(
+            assembly_list_id="80000B91-1720272847",
+            quantity=1,
+            inventory_site_name="Factory",
+        )
+        root = parse_xml(xml)
+        site = root.find(".//BuildAssemblyAdd/InventorySiteRef")
+        assert site is not None, "InventorySiteRef must be present when site_name set"
+        full = site.find("FullName")
+        assert full is not None and full.text == "Factory"
+        assert site.find("ListID") is None, "FullName form should not also emit ListID"
+
+    def test_inventory_site_ref_listid_preferred(self):
+        """When both ListID and FullName are passed, ListID wins."""
+        xml = build_build_assembly_add(
+            assembly_list_id="80000B91-1720272847",
+            quantity=1,
+            inventory_site_name="Factory",
+            inventory_site_list_id="80000002-1752686059",
+        )
+        root = parse_xml(xml)
+        site = root.find(".//BuildAssemblyAdd/InventorySiteRef")
+        assert site is not None
+        lid = site.find("ListID")
+        assert lid is not None and lid.text == "80000002-1752686059"
+        assert site.find("FullName") is None, "ListID form should not also emit FullName"
+
+    def test_lot_number_emitted(self):
+        """LotNumber is a direct child of BuildAssemblyAdd (qbXML 16)."""
+        xml = build_build_assembly_add(
+            assembly_list_id="80000B91-1720272847",
+            quantity=1,
+            lot_number="CSC-260502-FATL-1",
+        )
+        root = parse_xml(xml)
+        lot = root.find(".//BuildAssemblyAdd/LotNumber")
+        assert lot is not None, "<LotNumber> must be emitted when lot_number is set"
+        assert lot.text == "CSC-260502-FATL-1"
+
+    def test_site_and_lot_combined_order(self):
+        """Site + Lot together must follow qbXML 16 order:
+        ItemInventoryAssemblyRef, TxnDate, RefNumber, InventorySiteRef,
+        LotNumber, Memo, QuantityToBuild, MarkPendingIfRequired.
+        """
+        xml = build_build_assembly_add(
+            assembly_list_id="80000B91-1720272847",
+            quantity=1,
+            txn_date="2026-05-13",
+            ref_number="0502-18CJ-1",
+            inventory_site_name="Factory",
+            lot_number="CSC-260502-18CJ-1",
+            memo="MakerHub cascade",
+            mark_pending_if_required=True,
+        )
+        root = parse_xml(xml)
+        add = root.find(".//BuildAssemblyAdd")
+        tags = [child.tag for child in add]
+        expected_order = [
+            "ItemInventoryAssemblyRef",
+            "TxnDate",
+            "RefNumber",
+            "InventorySiteRef",
+            "LotNumber",
+            "Memo",
+            "QuantityToBuild",
+            "MarkPendingIfRequired",
+        ]
+        actual_order = [t for t in tags if t in expected_order]
+        assert actual_order == expected_order, (
+            f"qbXML 16 element order violated. "
+            f"Expected {expected_order}, got {actual_order}"
+        )
+
+    def test_quantity_rounded_to_integer(self):
+        """QuantityToBuild must be an integer string (QB error 3060 otherwise)."""
+        xml = build_build_assembly_add(
+            assembly_list_id="80000B91-1720272847",
+            quantity=19379.844961240313,
+        )
+        root = parse_xml(xml)
+        qty = root.find(".//BuildAssemblyAdd/QuantityToBuild")
+        assert qty is not None
+        # Must be an integer literal, no decimal
+        assert "." not in qty.text, f"QuantityToBuild={qty.text!r} should be rounded int"
+        int(qty.text)  # parses as int
 
 
 # ============================================================================
