@@ -244,6 +244,22 @@ class WriteQueueManager:
             "qb_request_id": request_id,
         }).eq("id", queue_id).execute()
 
+    def record_request_xml(self, queue_id: int, xml: str) -> None:
+        """
+        Capture the qbXML body the connector rendered for this row.
+        Diagnostic only - overwrites last_request_xml on every claim/retry
+        so we can debug schema rejections (0x80040400 parser errors)
+        without round-tripping through QBWC just to see the request shape.
+        Truncated to 8KB.
+        """
+        if not xml:
+            return
+        truncated = xml if len(xml) <= 8000 else xml[:8000] + "\n...[truncated]"
+        try:
+            self._table().update({"last_request_xml": truncated}).eq("id", queue_id).execute()
+        except Exception as e:
+            logger.warning("record_request_xml_failed", queue_id=queue_id, error=str(e))
+
     def mark_completed(
         self,
         queue_id: int,

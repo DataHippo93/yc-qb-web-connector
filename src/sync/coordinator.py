@@ -583,6 +583,10 @@ class SyncCoordinator:
             self._write_queue.mark_failed(item["id"], "Unknown operation type")
             return None
 
+        # Diagnostic: capture the rendered qbXML for post-mortem debugging
+        # of schema rejections. Cheap (single UPDATE) and strictly informational.
+        self._write_queue.record_request_xml(item["id"], xml)
+
         # Track the active write so handle_response can route correctly
         session.active_write_id = item["id"]
         self._write_queue.mark_sent(item["id"], request_id)
