@@ -149,9 +149,16 @@ class TestBuildAssemblyAddBuilder:
         assert lot.text == "CSC-260502-FATL-1"
 
     def test_site_and_lot_combined_order(self):
-        """Site + Lot together must follow qbXML 16 order:
-        ItemInventoryAssemblyRef, TxnDate, RefNumber, InventorySiteRef,
-        LotNumber, Memo, QuantityToBuild, MarkPendingIfRequired.
+        """Site + Lot together must follow the CANONICAL qbXML 13/16 BuildAssemblyAdd
+        sequence (verified against jsgoupil/quickbooks-sync qbxml130.xsd):
+        ItemInventoryAssemblyRef, InventorySiteRef, [InventorySiteLocationRef],
+        SerialNumber/LotNumber, TxnDate, RefNumber, Memo, QuantityToBuild,
+        MarkPendingIfRequired.
+
+        Earlier the builder placed InventorySiteRef and LotNumber AFTER
+        TxnDate/RefNumber/Memo, which QB rejected with parser error 0x80040400
+        (write_queue rows 68/69 on 2026-05-04). The strict-sequence parser
+        requires these elements BEFORE TxnDate.
         """
         xml = build_build_assembly_add(
             assembly_list_id="80000B91-1720272847",
@@ -168,18 +175,19 @@ class TestBuildAssemblyAddBuilder:
         tags = [child.tag for child in add]
         expected_order = [
             "ItemInventoryAssemblyRef",
-            "TxnDate",
-            "RefNumber",
             "InventorySiteRef",
             "LotNumber",
+            "TxnDate",
+            "RefNumber",
             "Memo",
             "QuantityToBuild",
             "MarkPendingIfRequired",
         ]
         actual_order = [t for t in tags if t in expected_order]
         assert actual_order == expected_order, (
-            f"qbXML 16 element order violated. "
-            f"Expected {expected_order}, got {actual_order}"
+            f"qbXML BuildAssemblyAdd schema sequence violated. "
+            f"Expected {expected_order}, got {actual_order}. "
+            f"InventorySiteRef + LotNumber MUST come before TxnDate."
         )
 
     def test_quantity_rounded_to_integer(self):

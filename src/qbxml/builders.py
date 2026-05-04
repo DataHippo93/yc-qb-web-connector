@@ -455,20 +455,29 @@ def build_build_assembly_add(
     rq = Element("BuildAssemblyAddRq", requestID=request_id)
     add = SubElement(rq, "BuildAssemblyAdd")
 
-    # Assembly item reference (required)
+    # CANONICAL qbXML 13/16 BuildAssemblyAdd CHILD ORDER (verified against
+    # the official Intuit XSD jsgoupil/quickbooks-sync/qbxml130.xsd):
+    #   1. ItemInventoryAssemblyRef   (required)
+    #   2. InventorySiteRef           (optional)
+    #   3. InventorySiteLocationRef   (optional - we don't use)
+    #   4. SerialNumber XOR LotNumber (optional choice)
+    #   5. TxnDate                    (optional)
+    #   6. RefNumber                  (optional)
+    #   7. Memo                       (optional)
+    #   8. QuantityToBuild            (required)
+    #   9. MarkPendingIfRequired      (optional)
+    #   10. ExternalGUID              (optional - we don't use)
+    # Earlier versions of this builder placed InventorySiteRef AFTER
+    # TxnDate/RefNumber and LotNumber AFTER InventorySiteRef but BEFORE
+    # Memo, both violating the schema sequence. QB's strict parser rejected
+    # those with 0x80040400. Fixed 2026-05-04 after pulling the XSD.
+
+    # 1. ItemInventoryAssemblyRef (required)
     item_ref = SubElement(add, "ItemInventoryAssemblyRef")
     SubElement(item_ref, "ListID").text = assembly_list_id
 
-    if txn_date:
-        SubElement(add, "TxnDate").text = txn_date
-
-    if ref_number:
-        SubElement(add, "RefNumber").text = ref_number
-
-    # Site reference: prefer ListID (qbXML 13.0 BuildAssemblyAdd rejects
-    # <FullName> for site refs in some QB Enterprise + Multi-Site
-    # configurations with a parser-level error 0x80040400. ListID is
-    # always accepted when the site exists.)
+    # 2. InventorySiteRef (must come BEFORE TxnDate per schema). Prefer ListID
+    # over FullName when both available; QB resolves either form server-side.
     if inventory_site_list_id:
         site_ref = SubElement(add, "InventorySiteRef")
         SubElement(site_ref, "ListID").text = inventory_site_list_id
@@ -476,31 +485,29 @@ def build_build_assembly_add(
         site_ref = SubElement(add, "InventorySiteRef")
         SubElement(site_ref, "FullName").text = inventory_site_name
 
-    # LotNumber on BuildAssemblyAdd: re-enabled 2026-05-02 after PreferencesQueryRq
-    # confirmed IsTrackingSerialOrLotNumber=LotNumber is enabled and qbXML version
-    # is 16.0. Earlier failure (write_queue id=64) attributed to <InventorySiteRef>
-    # combined with <LotNumber>; cascade route now sends <FullName> for site
-    # (instead of the unverified <ListID>) which QB resolves server-side.
-    # Per qbXML 16 schema, LotNumber is a direct child of BuildAssemblyAdd
-    # between InventorySiteRef and Memo.
+    # 4. LotNumber (or SerialNumber - mutually exclusive). Schema position
+    # is between InventorySiteRef and TxnDate.
     if lot_number:
         SubElement(add, "LotNumber").text = lot_number
 
+    # 5. TxnDate
+    if txn_date:
+        SubElement(add, "TxnDate").text = txn_date
+
+    # 6. RefNumber (max 11 chars per schema)
+    if ref_number:
+        SubElement(add, "RefNumber").text = ref_number
+
+    # 7. Memo (max 4095 chars per schema)
     if memo:
         SubElement(add, "Memo").text = memo
 
-    # QuantityToBuild is required. Round to integer because most QB Enterprise
-    # assembly items don't have "Use decimal quantities" enabled per-item and
-    # reject fractional values with QB error 3060 ("There was an error when
-    # converting the quantity ... in the field QuantityToBuild"). MakerHub
-    # passes lab-batch-derived fractional quantities (e.g. 19379.844961240313
-    # in write_queue id=65 on 2026-05-02); we round here so the connector
-    # handles it transparently rather than requiring upstream coercion. If a
-    # specific item DOES have decimal precision enabled, this loses sub-unit
-    # precision -- revisit per-item if that matters.
+    # 8. QuantityToBuild is required. Round to integer because most QB
+    # Enterprise assembly items don't have "Use decimal quantities" enabled
+    # per-item and reject fractional values with QB error 3060.
     SubElement(add, "QuantityToBuild").text = str(int(round(quantity)))
 
-    # MarkPendingIfRequired comes after QuantityToBuild per the qbXML 13.0 schema.
+    # 9. MarkPendingIfRequired
     if mark_pending_if_required:
         SubElement(add, "MarkPendingIfRequired").text = "true"
 
