@@ -56,18 +56,24 @@ QWC_TEMPLATE = """\
        enabled per company file (Edit > Preferences > Integrated Applications).
        umpRequired = the app refuses to run interactively. -->
   <UnattendedModePref>umpRequired</UnattendedModePref>
-  <!-- pdpNotNeeded = the app does not need access to personal data
-       (SSN, full credit card numbers). The QB dialog's "Allow this
-       application to access personal data" checkbox should be left UNCHECKED. -->
-  <PersonalDataPref>pdpNotNeeded</PersonalDataPref>
+  <!-- pdpNotNeeded = no SSN/bank-routing access (recommended default).
+       pdpRequired  = needed when pulling payroll detail (Paycheck*, Employee*).
+       QB Enterprise hides paycheck line detail from SDK apps that declare
+       pdpNotNeeded even when the user grants the app full access. -->
+  <PersonalDataPref>{personal_data_pref}</PersonalDataPref>
 </QBWCXML>
 """
 
-# Per-company usernames — MUST match QBWC_USERNAME variants in .env / companies.yaml
-# Convention: use distinct usernames so the server can route to the right company
+# Per-company usernames — MUST match the patterns in
+# src/soap/service.py::_resolve_company_from_username so the server can route
+# the QBWC session to the right company schema. Each suffix matches one of the
+# regexes in that resolver: NS/natures/storehouse, ADK/fragrance/adirondack,
+# YCW/yc_works/ycworks, MM/maine_and_maine, YCC/yc_consulting/yconsult.
 COMPANY_USERNAMES = {
-    "natures_storehouse": "YCConnector_NS",
-    "adk_fragrance":      "YCConnector_ADK",
+    "adk_fragrance":   "YCConnector_ADK",
+    "yc_works":        "YCConnector_YCW",
+    "maine_and_maine": "YCConnector_MM",
+    "yc_consulting":   "YCConnector_YCC",
 }
 
 
@@ -78,6 +84,12 @@ def generate_qwc(company_id: str, cfg: dict, host: str, out_dir: Path) -> None:
     app_url = f"{host.rstrip('/')}/qbwc/"
     support_url = f"{host.rstrip('/')}/"
 
+    pdp = cfg.get("personal_data_pref", "pdpNotNeeded")
+    if pdp not in ("pdpNotNeeded", "pdpOptional", "pdpRequired"):
+        raise ValueError(
+            f"{company_id}: invalid personal_data_pref={pdp!r}. "
+            "Use pdpNotNeeded, pdpOptional, or pdpRequired."
+        )
     content = QWC_TEMPLATE.format(
         app_name=app_name,
         app_url=app_url,
@@ -87,6 +99,7 @@ def generate_qwc(company_id: str, cfg: dict, host: str, out_dir: Path) -> None:
         owner_id=str(uuid.uuid4()).upper(),
         file_id=str(uuid.uuid4()).upper(),
         interval=interval,
+        personal_data_pref=pdp,
     )
 
     out_file = out_dir / f"{company_id}.qwc"
@@ -126,12 +139,4 @@ def main():
     for company_id, cfg in companies.items():
         generate_qwc(company_id, cfg, args.host, out_dir)
 
-    print("Done. Next steps:")
-    print("  1. Copy .qwc files to the Windows machine running QB Enterprise + QBWC")
-    print("  2. Open QBWC → Add Application → browse to the .qwc file")
-    print("  3. Set the password (must match QBWC_PASSWORD in connector .env)")
-    print("  4. Click Update Selected in QBWC to trigger first sync")
-
-
-if __name__ == "__main__":
-    main()
+    # Stick to ASCII so the script doesn't crash under Wi

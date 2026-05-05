@@ -213,7 +213,9 @@ def parse_vendor(el: etree._Element) -> dict:
         "vendor_type": _ref(el, "VendorTypeRef"),
         "terms": _ref(el, "TermsRef"),
         "credit_limit": _amount(el, "CreditLimit"),
-        "vendor_tax_ident": _text(el, "VendorTaxIdent"),
+        # VendorTaxIdent: INTENTIONALLY DROPPED. 8/13 adk_fragrance vendors had
+        # SSN-shaped values (1099 sole proprietors). PII risk > analytical value.
+        # See outputs/yc-qb-pii-policy.md.
         "is_vendor_eligible_for_1099": _bool(el, "IsVendorEligibleFor1099"),
         "open_balance": _amount(el, "OpenBalance"),
         "external_guid": _text(el, "ExternalGUID"),
@@ -696,6 +698,17 @@ def parse_terms(el: etree._Element) -> dict:
 
 
 def parse_employee(el: etree._Element) -> dict:
+    """Extract employee fields with PII stripped at the source.
+
+    Per Clark's 2026-05-05 PII policy (outputs/yc-qb-pii-policy.md), we
+    intentionally DO NOT extract: home address, personal phone, personal cell,
+    personal email, gender, ExternalGUID, SSN. Those fields are dropped here
+    so they never hit Postgres, never end up in a JSONB blob, never get logged.
+
+    KEEP: name parts (operational), job_title, employee_type, hire/release
+    dates (tenure analysis), pay-related fields are on Paycheck/PayrollItem
+    not Employee, so this stays a thin operational record.
+    """
     return {
         "qb_list_id": _text(el, "ListID"),
         "name": _text(el, "Name"),
@@ -706,18 +719,15 @@ def parse_employee(el: etree._Element) -> dict:
         "last_name": _text(el, "LastName"),
         "suffix": _text(el, "Suffix"),
         "job_title": _text(el, "JobTitle"),
-        "address": _address(el, "EmployeeAddress"),
-        "phone": _text(el, "Phone"),
-        "mobile": _text(el, "Mobile"),
-        "email": _text(el, "Email"),
         "employee_type": _text(el, "EmployeeType"),
-        "gender": _text(el, "Gender"),
         "hired_date": _text(el, "HiredDate"),
         "released_date": _text(el, "ReleasedDate"),
-        "external_guid": _text(el, "ExternalGUID"),
         "time_created": _text(el, "TimeCreated"),
         "time_modified": _text(el, "TimeModified"),
         "edit_sequence": _text(el, "EditSequence"),
+        # INTENTIONALLY DROPPED (PII):
+        #   EmployeeAddress (home), Phone (personal), Mobile (personal cell),
+        #   Email (personal), Gender, ExternalGUID, SSN, BankAccount.
     }
 
 
@@ -1120,6 +1130,191 @@ ITEM_RET_TYPES = {
 
 # Map Rs element names to parser functions and record structure
 # (ret_tag, parser_fn, has_lines)
+def parse_payroll_item_wage(el):
+    """List object: PayrollItemWageRet - wage definitions (HourlyRegular, Salary, Bonus, etc.)"""
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "full_name": _text(el, "Name"),
+        "is_active": _bool(el, "IsActive"),
+        "wage_type": _text(el, "WageType"),
+        "expense_account_qb_list_id": _ref(el, "ExpenseAccountRef", "ListID"),
+        "expense_account_name": _ref(el, "ExpenseAccountRef"),
+        "edit_sequence": _text(el, "EditSequence"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+    }
+
+
+def parse_payroll_item_non_wage(el):
+    """List object: PayrollItemNonWageRet - additions, deductions, taxes, contributions.
+    QB returns one of <Addition>, <Deduction>, <CompanyContribution>, <FederalTax>,
+    <StateTax>, <OtherTax> as a child wrapping the type-specific fields. We
+    flatten the kind into item_kind and pull common refs from whichever wrapper
+    is present.
+    """
+    qb_list_id = _text(el, "ListID")
+    name = _text(el, "Name")
+    is_active = _bool(el, "IsActive")
+    edit_sequence = _text(el, "EditSequence")
+    time_created = _text(el, "TimeCreated")
+    time_modified = _text(el, "TimeModified")
+
+    # Detect which type-wrapper is present
+    item_kind = None
+    wrapper = None
+    for kind in ("Addition", "Deduction", "CompanyContribution",
+                 "FederalTax", "StateTax", "OtherTax"):
+        w = el.find(kind)
+        if w is not None:
+            item_kind = kind
+            wrapper = w
+            break
+
+    liability_account_qb_list_id = None
+    liability_account_name = None
+    expense_account_qb_list_id = None
+    expense_account_name = None
+    vendor_qb_list_id = None
+    vendor_name = None
+
+    if wrapper is not None:
+        liability_account_qb_list_id = _ref(wrapper, "LiabilityAccountRef", "ListID")
+        liability_account_name = _ref(wrapper, "LiabilityAccountRef")
+        expense_account_qb_list_id = _ref(wrapper, "ExpenseAccountRef", "ListID")
+        expense_account_name = _ref(wrapper, "ExpenseAccountRef")
+        vendor_qb_list_id = _ref(wrapper, "AgencyRef", "ListID") or _ref(wrapper, "VendorRef", "ListID")
+        vendor_name = _ref(wrapper, "AgencyRef") or _ref(wrapper, "VendorRef")
+
+    return {
+        "qb_list_id": qb_list_id,
+        "name": name,
+        "full_name": name,
+        "is_active": is_active,
+        "item_kind": item_kind,
+        "liability_account_qb_list_id": liability_account_qb_list_id,
+        "liability_account_name": liability_account_name,
+        "expense_account_qb_list_id": expense_account_qb_list_id,
+        "expense_account_name": expense_account_name,
+        "vendor_qb_list_id": vendor_qb_list_id,
+        "vendor_name": vendor_name,
+        "edit_sequence": edit_sequence,
+        "time_created": time_created,
+        "time_modified": time_modified,
+    }
+
+
+def parse_billing_rate(el):
+    """List object: BillingRateRet - rate cards for time-tracking->invoicing."""
+    return {
+        "qb_list_id": _text(el, "ListID"),
+        "name": _text(el, "Name"),
+        "is_active": _bool(el, "IsActive"),
+        "billing_rate_type": _text(el, "BillingRateType"),
+        "fixed_rate": _amount(el, "FixedBillingRate"),
+        "edit_sequence": _text(el, "EditSequence"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+    }
+
+
+def parse_paycheck(el):
+    """Transaction: PaycheckRet (header + EarningsLineRet, etc.)
+    Lines flatten into paycheck_lines with payroll_item_kind tagging which
+    bucket the line came from (earning, tax, deduction, contribution).
+    """
+    txn_id = _text(el, "TxnID") or ""
+    header = {
+        "qb_txn_id": txn_id,
+        "ref_number": _text(el, "RefNumber"),
+        "txn_number": _text(el, "TxnNumber"),
+        "txn_date": _text(el, "TxnDate"),
+        "payroll_account_qb_list_id": _ref(el, "AccountRef", "ListID"),
+        "payroll_account_name": _ref(el, "AccountRef"),
+        "employee_qb_list_id": _ref(el, "EmployeeRet", "ListID") or _ref(el, "EmployeeRef", "ListID"),
+        "employee_full_name": _ref(el, "EmployeeRet") or _ref(el, "EmployeeRef"),
+        "gross_pay": _amount(el, "GrossEarnings"),
+        "net_pay": _amount(el, "NetPaycheck") or _amount(el, "Amount"),
+        "total_taxes": None,
+        "total_deductions": None,
+        "total_company_contributions": None,
+        "pay_period_start": _text(el, "PayPeriodStartDate") or _text(el, "PayPeriodFromDate"),
+        "pay_period_end": _text(el, "PayPeriodEndDate") or _text(el, "PayPeriodToDate"),
+        "is_to_be_printed": _bool(el, "IsToBePrinted"),
+        "is_pending": _bool(el, "IsPending"),
+        "is_void": _bool(el, "IsVoid"),
+        "memo": _text(el, "Memo"),
+        "edit_sequence": _text(el, "EditSequence"),
+        "time_created": _text(el, "TimeCreated"),
+        "time_modified": _text(el, "TimeModified"),
+    }
+
+    lines = []
+    seq = 0
+
+    # Earnings (EarningsLineRet)
+    earnings_total = 0.0
+    for ln in el.findall("EarningsLineRet"):
+        seq += 1
+        amt = _amount(ln, "Amount") or 0.0
+        earnings_total += amt
+        lines.append({
+            "txn_id": txn_id,
+            "line_seq_no": seq,
+            "payroll_item_qb_list_id": _ref(ln, "WageItemRef", "ListID") or _ref(ln, "PayrollItemWageRef", "ListID"),
+            "payroll_item_name": _ref(ln, "WageItemRef") or _ref(ln, "PayrollItemWageRef"),
+            "payroll_item_kind": "wage",
+            "rate": _amount(ln, "Rate"),
+            "hours": _amount(ln, "Hours"),
+            "amount": amt,
+            "ytd_amount": _amount(ln, "YTDAmount"),
+            "class_qb_list_id": _ref(ln, "ClassRef", "ListID"),
+            "class_name": _ref(ln, "ClassRef"),
+            "customer_qb_list_id": _ref(ln, "CustomerRef", "ListID"),
+            "customer_name": _ref(ln, "CustomerRef"),
+        })
+
+    # Other lines: deductions, taxes, contributions are usually in
+    # DeductionLineRet, EmployeeTaxLineRet, CompanyContributionLineRet, etc.
+    line_kinds = [
+        ("DeductionLineRet", "deduction"),
+        ("EmployeeTaxLineRet", "employee_tax"),
+        ("CompanyContributionLineRet", "company_contribution"),
+        ("AdditionLineRet", "addition"),
+    ]
+    for tag, kind in line_kinds:
+        for ln in el.findall(tag):
+            seq += 1
+            lines.append({
+                "txn_id": txn_id,
+                "line_seq_no": seq,
+                "payroll_item_qb_list_id": _ref(ln, "PayrollItemRef", "ListID") or _ref(ln, "DeductionItemRef", "ListID") or _ref(ln, "TaxItemRef", "ListID"),
+                "payroll_item_name": _ref(ln, "PayrollItemRef") or _ref(ln, "DeductionItemRef") or _ref(ln, "TaxItemRef"),
+                "payroll_item_kind": kind,
+                "rate": _amount(ln, "Rate"),
+                "hours": _amount(ln, "Hours"),
+                "amount": _amount(ln, "Amount"),
+                "ytd_amount": _amount(ln, "YTDAmount"),
+                "class_qb_list_id": _ref(ln, "ClassRef", "ListID"),
+                "class_name": _ref(ln, "ClassRef"),
+                "customer_qb_list_id": _ref(ln, "CustomerRef", "ListID"),
+                "customer_name": _ref(ln, "CustomerRef"),
+            })
+
+    # Roll up totals from lines into header
+    header["total_taxes"] = sum(
+        ln["amount"] or 0.0 for ln in lines if ln["payroll_item_kind"] == "employee_tax"
+    ) or None
+    header["total_deductions"] = sum(
+        ln["amount"] or 0.0 for ln in lines if ln["payroll_item_kind"] == "deduction"
+    ) or None
+    header["total_company_contributions"] = sum(
+        ln["amount"] or 0.0 for ln in lines if ln["payroll_item_kind"] == "company_contribution"
+    ) or None
+
+    return header, lines
+
+
 RESPONSE_PARSERS: dict[str, Any] = {
     # List objects (no lines)
     "AccountQueryRs": ("AccountRet", parse_account, False),
@@ -1157,6 +1352,11 @@ RESPONSE_PARSERS: dict[str, Any] = {
     "ReceivePaymentQueryRs": ("ReceivePaymentRet", parse_receive_payment, False),
     "TransferQueryRs": ("TransferRet", parse_transfer, False),
     "TimeTrackingQueryRs": ("TimeTrackingRet", parse_time_tracking, False),
+    # Payroll
+    "PayrollItemWageQueryRs":    ("PayrollItemWageRet",    parse_payroll_item_wage,    False),
+    "PayrollItemNonWageQueryRs": ("PayrollItemNonWageRet", parse_payroll_item_non_wage, False),
+    "BillingRateQueryRs":        ("BillingRateRet",        parse_billing_rate,         False),
+    "PaycheckQueryRs":           ("PaycheckRet",           parse_paycheck,             True),
 }
 
 
