@@ -63,11 +63,17 @@ QWC_TEMPLATE = """\
 </QBWCXML>
 """
 
-# Per-company usernames — MUST match QBWC_USERNAME variants in .env / companies.yaml
-# Convention: use distinct usernames so the server can route to the right company
+# Per-company usernames — MUST match the patterns in
+# src/soap/service.py::_resolve_company_from_username so the server can route
+# the QBWC session to the right company schema. Each suffix matches one of the
+# regexes in that resolver: NS/natures/storehouse, ADK/fragrance/adirondack,
+# YCW/yc_works/ycworks, MM/maine_and_maine, YCC/yc_consulting/yconsult.
 COMPANY_USERNAMES = {
     "natures_storehouse": "YCConnector_NS",
     "adk_fragrance":      "YCConnector_ADK",
+    "yc_works":           "YCConnector_YCW",
+    "maine_and_maine":    "YCConnector_MM",
+    "yc_consulting":      "YCConnector_YCC",
 }
 
 
@@ -126,9 +132,10 @@ def main():
     for company_id, cfg in companies.items():
         generate_qwc(company_id, cfg, args.host, out_dir)
 
+    # Stick to ASCII so the script doesn't crash under Windows cp1252 stdout.
     print("Done. Next steps:")
     print("  1. Copy .qwc files to the Windows machine running QB Enterprise + QBWC")
-    print("  2. Open QBWC → Add Application → browse to the .qwc file")
+    print("  2. Open QBWC -> Add Application -> browse to the .qwc file")
     print("  3. Set the password (must match QBWC_PASSWORD in connector .env)")
     print("  4. Click Update Selected in QBWC to trigger first sync")
 

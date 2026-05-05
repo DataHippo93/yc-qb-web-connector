@@ -67,6 +67,11 @@ ENTITY_TABLE_MAP: dict[str, tuple[str, str, bool, str | None]] = {
     "receive_payments":  ("receive_payments",   "qb_txn_id",  False, None),
     "transfers":         ("transfers",          "qb_txn_id",  False, None),
     "time_tracking":     ("time_tracking",      "qb_txn_id",  False, None),
+    # Payroll (yc_works + payroll-enabled companies)
+    "paychecks":         ("paychecks",          "qb_txn_id",  True,  "paycheck_lines"),
+    "payroll_items_wage":     ("payroll_items_wage",     "qb_list_id", False, None),
+    "payroll_items_non_wage": ("payroll_items_non_wage", "qb_list_id", False, None),
+    "billing_rates":     ("billing_rates",      "qb_list_id", False, None),
 }
 
 # Assembly bill of materials table name
