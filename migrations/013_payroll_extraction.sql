@@ -11,7 +11,6 @@ DECLARE
     s TEXT;
     company_schemas TEXT[] := ARRAY[
         'adk_fragrance',
-        'natures_storehouse',
         'maine_and_maine',
         'yc_consulting',
         'yc_works'

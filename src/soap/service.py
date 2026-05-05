@@ -613,8 +613,11 @@ def _resolve_company_from_username(username: str, company_config: Any) -> str | 
     Convention: one QBWC app (.qwc file) per company with distinct usernames.
     """
     lower = username.lower()
+    # YC Works LLC dba Nature's Storehouse - the natures_storehouse schema was
+    # dropped 2026-05-05 (consolidated into yc_works). Any legacy .qwc still
+    # using NS/natures/storehouse-style usernames resolves to yc_works.
     if "ns" in lower or "natures" in lower or "storehouse" in lower:
-        return "natures_storehouse"
+        return "yc_works"
     if "adk" in lower or "fragrance" in lower or "adirondack" in lower:
         return "adk_fragrance"
     if "ycw" in lower or "yc_works" in lower or "ycworks" in lower:

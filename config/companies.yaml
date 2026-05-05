@@ -3,49 +3,6 @@
 # The schema must exist before sync runs (see migrations/bootstrap.sql).
 
 companies:
-  natures_storehouse:
-    display_name: "Nature's Storehouse"
-    pg_schema: "natures_storehouse"
-    qb_company_file: ""
-    qwc_app_name: "YC QB Connector - Nature's"
-    qwc_app_url: "https://yc-qb-web-connector.vercel.app/qbwc/"
-    qwc_app_support_url: "https://yc-qb-web-connector.vercel.app/"
-    sync_interval_minutes: 60
-    max_returned: 100
-    enabled_entities:
-      - accounts
-      - classes
-      - sales_tax_codes
-      - payment_methods
-      - ship_methods
-      - terms
-      - unit_of_measure_sets
-      - customers
-      - vendors
-      - employees
-      - items
-      - inventory_items
-      - assembly_bom
-      - purchase_orders
-      - item_receipts
-      - bills
-      - bill_payments
-      - vendor_credits
-      - estimates
-      - sales_orders
-      - invoices
-      - sales_receipts
-      - credit_memos
-      - receive_payments
-      - deposits
-      - checks
-      - credit_card_charges
-      - credit_card_credits
-      - journal_entries
-      - transfers
-      - inventory_adjustments
-      - time_tracking
-
   adk_fragrance:
     display_name: "Sandy Maine Inc (Adirondack Fragrance Farm)"
     pg_schema: "adk_fragrance"
@@ -93,7 +50,10 @@ companies:
       - time_tracking
 
   yc_works:
-    display_name: "YC Works LLC"
+    # YC Works LLC dba Nature's Storehouse - same legal entity (LaBella docs).
+    # Canonical schema for the Canton, NY operation. The legacy
+    # `natures_storehouse` schema was dropped 2026-05-05 (it was empty).
+    display_name: "YC Works LLC dba Nature's Storehouse"
     pg_schema: "yc_works"
     qb_company_file: ""
     qwc_app_name: "YC QB Connector - YC Works"
@@ -101,6 +61,10 @@ companies:
     qwc_app_support_url: "https://yc-qb-web-connector.vercel.app/"
     sync_interval_minutes: 60
     max_returned: 100
+    # pdpRequired: needed for paycheck detail visibility on QB Enterprise +
+    # active Payroll subscription. Without it, paycheck line items come back
+    # truncated even though the SDK app has full access.
+    personal_data_pref: "pdpRequired"
     enabled_entities:
       # Payroll-specific (yc_works has active Payroll subscription)
       - payroll_items_wage

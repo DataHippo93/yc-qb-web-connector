@@ -213,7 +213,9 @@ def parse_vendor(el: etree._Element) -> dict:
         "vendor_type": _ref(el, "VendorTypeRef"),
         "terms": _ref(el, "TermsRef"),
         "credit_limit": _amount(el, "CreditLimit"),
-        "vendor_tax_ident": _text(el, "VendorTaxIdent"),
+        # VendorTaxIdent: INTENTIONALLY DROPPED. 8/13 adk_fragrance vendors had
+        # SSN-shaped values (1099 sole proprietors). PII risk > analytical value.
+        # See outputs/yc-qb-pii-policy.md.
         "is_vendor_eligible_for_1099": _bool(el, "IsVendorEligibleFor1099"),
         "open_balance": _amount(el, "OpenBalance"),
         "external_guid": _text(el, "ExternalGUID"),
@@ -696,6 +698,17 @@ def parse_terms(el: etree._Element) -> dict:
 
 
 def parse_employee(el: etree._Element) -> dict:
+    """Extract employee fields with PII stripped at the source.
+
+    Per Clark's 2026-05-05 PII policy (outputs/yc-qb-pii-policy.md), we
+    intentionally DO NOT extract: home address, personal phone, personal cell,
+    personal email, gender, ExternalGUID, SSN. Those fields are dropped here
+    so they never hit Postgres, never end up in a JSONB blob, never get logged.
+
+    KEEP: name parts (operational), job_title, employee_type, hire/release
+    dates (tenure analysis), pay-related fields are on Paycheck/PayrollItem
+    not Employee, so this stays a thin operational record.
+    """
     return {
         "qb_list_id": _text(el, "ListID"),
         "name": _text(el, "Name"),
@@ -706,18 +719,15 @@ def parse_employee(el: etree._Element) -> dict:
         "last_name": _text(el, "LastName"),
         "suffix": _text(el, "Suffix"),
         "job_title": _text(el, "JobTitle"),
-        "address": _address(el, "EmployeeAddress"),
-        "phone": _text(el, "Phone"),
-        "mobile": _text(el, "Mobile"),
-        "email": _text(el, "Email"),
         "employee_type": _text(el, "EmployeeType"),
-        "gender": _text(el, "Gender"),
         "hired_date": _text(el, "HiredDate"),
         "released_date": _text(el, "ReleasedDate"),
-        "external_guid": _text(el, "ExternalGUID"),
         "time_created": _text(el, "TimeCreated"),
         "time_modified": _text(el, "TimeModified"),
         "edit_sequence": _text(el, "EditSequence"),
+        # INTENTIONALLY DROPPED (PII):
+        #   EmployeeAddress (home), Phone (personal), Mobile (personal cell),
+        #   Email (personal), Gender, ExternalGUID, SSN, BankAccount.
     }
 
 

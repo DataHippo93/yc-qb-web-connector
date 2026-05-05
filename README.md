@@ -1,8 +1,22 @@
 # YC QuickBooks Web Connector
 
 Syncs QuickBooks Desktop Enterprise data to Supabase for:
-- **Nature's Storehouse** (Canton, NY)
-- **Adirondack Fragrance Farm**
+- **YC Works LLC dba Nature's Storehouse** (Canton, NY) — `yc_works` schema
+- **Sandy Maine Inc dba Adirondack Fragrance Farm** — `adk_fragrance` schema
+- **Maine & Maine, LLC** — `maine_and_maine` schema
+- **YC Consulting** — `yc_consulting` schema
+
+> **Schema consolidation 2026-05-05:** The legacy `natures_storehouse`
+> schema was dropped — Nature's Storehouse is the same legal entity as
+> YC Works LLC. All Canton/Nature's Storehouse data now lives in
+> `yc_works`. The connector still recognizes legacy NS-style usernames
+> (e.g. `YCConnector_NS`) and routes them to `yc_works`.
+
+> **PII policy:** see [`docs/PII_POLICY.md`](docs/PII_POLICY.md). Personal
+> identifying fields (home address, personal phone/email, SSN, bank account,
+> DOB) are dropped at the parser layer and never reach Postgres. Vendor
+> `TaxIdent` is also dropped because 8/13 adk_fragrance vendors had
+> SSN-shaped values (1099 sole proprietors).
 
 Each company gets its own isolated Postgres schema in Supabase (`natures_storehouse`, `adk_fragrance`).
 Shared sync metadata lives in `qb_meta`.
