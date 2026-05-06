@@ -86,23 +86,48 @@ class BuildAssemblyRequest(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    """App startup/shutdown.
+
+    CRITICAL: every line here runs on EVERY Vercel cold start. The
+    @vercel/python runtime kills the whole function with FUNCTION_INVOCATION_FAILED
+    if init exceeds ~5-10 seconds. The previous version did N+1 sequential
+    Supabase RPCs (upsert_company per company + cleanup_expired) which on a
+    cold container against a cold Supabase pool takes ~5-7s and consistently
+    timed out (observed 2026-05-06: every /health request returned HTTP 500
+    in 5-6s). Each Supabase call is now wrapped in try/except so one slow or
+    failed RPC doesn't doom the whole boot.
+    """
     settings = get_settings()
     configure_logging(settings.log_level)
     logger.info("starting_up", version="1.0.0", port=settings.port)
 
-    # Register companies in qb_meta.companies
-    client = get_supabase_client()
-    meta = MetaUpserter(client)
-    company_cfg = get_company_config()
-    for cid in company_cfg.all_company_ids():
-        meta.upsert_company(
-            company_id=cid,
-            pg_schema=company_cfg.pg_schema(cid),
-            display_name=company_cfg.display_name(cid),
-        )
+    # Best-effort registry sync. Failures are logged but never raised — the
+    # registry is also bootstrapped by scripts/bootstrap_schemas.py and on
+    # config changes; nothing critical depends on it being re-upserted on
+    # every cold start.
+    try:
+        client = get_supabase_client()
+        meta = MetaUpserter(client)
+        company_cfg = get_company_config()
+        for cid in company_cfg.all_company_ids():
+            try:
+                meta.upsert_company(
+                    company_id=cid,
+                    pg_schema=company_cfg.pg_schema(cid),
+                    display_name=company_cfg.display_name(cid),
+                )
+            except Exception as e:
+                logger.warning(
+                    "startup_company_upsert_failed",
+                    company=cid, error=str(e),
+                )
+    except Exception as e:
+        logger.warning("startup_registry_sync_failed", error=str(e))
 
-    # Clean up expired sessions on startup (serverless-friendly)
-    get_session_store().cleanup_expired()
+    try:
+        get_session_store().cleanup_expired()
+    except Exception as e:
+        logger.warning("startup_session_cleanup_failed", error=str(e))
 
     yield
     logger.info("shutting_down")
